@@ -18,7 +18,7 @@ import {
     SwitchGroupWide
 } from "../../components/inputs";
 import { SlideOver } from "../../components/panels";
-import Toast from '../../components/notifications/Toast';
+import { Toast } from '../../components/notifications/Toast';
 
 const Input = (props: any) => {
   return (
@@ -187,67 +187,6 @@ export function IndexerAddForm({ isOpen, toggle }: AddProps) {
             onSuccess: () => ircMutation.mutate(network)
         });
     };
-
-    const renderSettingFields = (indexer: string) => {
-        if (indexer !== "") {
-            const ind = data && data.find(i => i.identifier === indexer);
-            return (
-                <div key="opt">
-                    {ind && ind.settings && ind.settings.map((f: any, idx: number) => {
-                        switch (f.type) {
-                            case "text":
-                                return (
-                                    <TextFieldWide name={`settings.${f.name}`} label={f.label} key={idx} help={f.help} defaultValue="" />
-                                )
-                            case "secret":
-                                return (
-                                    <PasswordFieldWide name={`settings.${f.name}`} label={f.label} key={idx} help={f.help} defaultValue="" />
-                                )
-                        }
-                        return null
-                    })}
-                    <div hidden={true}>
-                        <TextFieldWide name="name" label="Name" defaultValue={ind?.name} />
-                    </div>
-                </div>
-            )
-        }
-    }
-
-    const renderIrcSettingFields = (indexer: string) => {
-        if (indexer !== "") {
-            const ind = data && data.find(i => i.identifier === indexer);
-            return (
-                <Fragment>
-                    {ind && ind.irc && ind.irc.settings && (
-                        <div className="border-t border-gray-200 dark:border-gray-700 py-5">
-                            <div className="px-6 space-y-1">
-                                <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">IRC</Dialog.Title>
-                                <p className="text-sm text-gray-500 dark:text-gray-200">
-                                    Networks, channels and invite commands are configured automatically.
-                                </p>
-                            </div>
-                            {ind.irc.settings.map((f: IndexerSetting, idx: number) => {
-                                switch (f.type) {
-                                    case "text":
-                                        return <TextFieldWide name={`irc.${f.name}`} label={f.label} required={f.required} key={idx} help={f.help} />
-                                    case "secret":
-                                        return <PasswordFieldWide name={`irc.${f.name}`} label={f.label} required={f.required} key={idx} help={f.help} defaultValue={f.default} />
-                                }
-                                return null
-                            })}
-
-                            {/* <div hidden={false}>
-                                <TextFieldWide name="irc.server" label="Server" defaultValue={ind.irc.server} />
-                                <NumberFieldWide name="irc.port" label="Port" defaultValue={ind.irc.port} />
-                                <SwitchGroupWide name="irc.tls" label="TLS" defaultValue={ind.irc.tls} />
-                            </div> */}
-                        </div>
-                    )}
-                </Fragment>
-            )
-        }
-    }
 
     return (
         <Transition.Root show={isOpen} as={Fragment}>

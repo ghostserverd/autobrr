@@ -1,4 +1,3 @@
-import { Fragment } from "react";
 import { BrowserRouter as Router, Route, Switch } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "react-query";
 import { ReactQueryDevtools } from "react-query/devtools";
@@ -12,15 +11,6 @@ import { baseUrl } from "./utils";
 
 import { AuthContext, SettingsContext } from "./utils/Context";
 
-function Protected() {
-  return (
-    <Fragment>
-      <Toaster position="top-right" />
-      <Base />
-    </Fragment>
-  )
-}
-
 export const queryClient = new QueryClient();
 
 export function App() {
@@ -29,11 +19,13 @@ export function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <Toaster position="top-right" />
+
       <Router basename={baseUrl()}>
         <Route exact path="/logout" component={Logout} />
 
         {authContext.isLoggedIn ? (
-          <Route component={Protected} />
+          <Route component={Base} />
         ) : (
           <Switch>
             <Route exact path="/onboard" component={Onboarding} />

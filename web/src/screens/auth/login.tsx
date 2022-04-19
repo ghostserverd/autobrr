@@ -1,13 +1,15 @@
+import { useEffect } from "react";
 import { useHistory } from "react-router-dom";
 import { useMutation } from "react-query";
 import { Form, Formik } from "formik";
+import { toast } from "react-hot-toast";
 
 import { APIClient } from "../../api/APIClient";
+import { Toast } from "../../components/notifications/Toast";
 import { TextField, PasswordField } from "../../components/inputs";
 
 import logo from "../../logo.png";
 import { AuthContext } from "../../utils/Context";
-import { useEffect } from "react";
 
 interface LoginData {
   username: string;
@@ -35,6 +37,9 @@ export const Login = () => {
         });
         history.push("/");
       },
+      onError: (error: Error) => {
+        toast.custom((t) => <Toast type="error" body={error.message} t={t} />);
+      }
     }
   );
 

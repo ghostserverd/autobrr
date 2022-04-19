@@ -22,7 +22,6 @@ export async function HttpClient<T>(
         ...customConfig
     } as RequestInit;
 
-
     return window.fetch(`${baseUrl()}${endpoint}`, config)
         .then(async response => {
             if (response.status === 401) {
@@ -33,9 +32,6 @@ export async function HttpClient<T>(
 
                 return Promise.reject(new Error(response.statusText));
             }
-
-            if ([403, 404].includes(response.status))
-                return Promise.reject(new Error(response.statusText));
 
             if ([201, 204].includes(response.status))
                 return Promise.resolve(response);
@@ -62,8 +58,15 @@ export const APIClient = {
         login: (username: string, password: string) => appClient.Post("api/auth/login", { username: username, password: password }),
         logout: () => appClient.Post("api/auth/logout", null),
         validate: () => appClient.Get<void>("api/auth/validate"),
-        onboard: (username: string, password: string) => appClient.Post("api/auth/onboard", { username: username, password: password }),
+        onboard: (username: string, password: string, logDir: string) => (
+          appClient.Post("api/auth/onboard", {
+            username: username,
+            password: password,
+            log_dir: logDir
+          })
+        ),
         canOnboard: () => appClient.Get("api/auth/onboard"),
+        getOnboardingPreferences: () => appClient.Get<OnboardingPreferences>("api/auth/onboard/preferences")
     },
     actions: {
         create: (action: Action) => appClient.Post("api/actions", action),

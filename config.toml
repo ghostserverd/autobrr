@@ -25,7 +25,7 @@ port = 7474
 #
 # Optional
 #
-#logPath = "log/autobrr.log"
+#logPath = "logs/autobrr.log"
 
 # Log level
 #
