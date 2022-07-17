@@ -1,7 +1,11 @@
 package domain
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"net/url"
+	"text/template"
 
 	"github.com/dustin/go-humanize"
 )
@@ -12,32 +16,35 @@ type IndexerRepo interface {
 	List(ctx context.Context) ([]Indexer, error)
 	Delete(ctx context.Context, id int) error
 	FindByFilterID(ctx context.Context, id int) ([]Indexer, error)
+	FindByID(ctx context.Context, id int) (*Indexer, error)
 }
 
 type Indexer struct {
-	ID         int64             `json:"id"`
-	Name       string            `json:"name"`
-	Identifier string            `json:"identifier"`
-	Enabled    bool              `json:"enabled"`
-	Type       string            `json:"type,omitempty"`
-	Settings   map[string]string `json:"settings,omitempty"`
+	ID             int64             `json:"id"`
+	Name           string            `json:"name"`
+	Identifier     string            `json:"identifier"`
+	Enabled        bool              `json:"enabled"`
+	Implementation string            `json:"implementation"`
+	Settings       map[string]string `json:"settings,omitempty"`
 }
 
 type IndexerDefinition struct {
-	ID          int               `json:"id,omitempty"`
-	Name        string            `json:"name"`
-	Identifier  string            `json:"identifier"`
-	Enabled     bool              `json:"enabled,omitempty"`
-	Description string            `json:"description"`
-	Language    string            `json:"language"`
-	Privacy     string            `json:"privacy"`
-	Protocol    string            `json:"protocol"`
-	URLS        []string          `json:"urls"`
-	Supports    []string          `json:"supports"`
-	Settings    []IndexerSetting  `json:"settings"`
-	SettingsMap map[string]string `json:"-"`
-	IRC         *IndexerIRC       `json:"irc"`
-	Parse       IndexerParse      `json:"parse"`
+	ID             int               `json:"id,omitempty"`
+	Name           string            `json:"name"`
+	Identifier     string            `json:"identifier"`
+	Implementation string            `json:"implementation"`
+	Enabled        bool              `json:"enabled,omitempty"`
+	Description    string            `json:"description"`
+	Language       string            `json:"language"`
+	Privacy        string            `json:"privacy"`
+	Protocol       string            `json:"protocol"`
+	URLS           []string          `json:"urls"`
+	Supports       []string          `json:"supports"`
+	Settings       []IndexerSetting  `json:"settings,omitempty"`
+	SettingsMap    map[string]string `json:"-"`
+	IRC            *IndexerIRC       `json:"irc,omitempty"`
+	Torznab        *Torznab          `json:"torznab,omitempty"`
+	Parse          *IndexerParse     `json:"parse,omitempty"`
 }
 
 func (i IndexerDefinition) HasApi() bool {
@@ -59,6 +66,11 @@ type IndexerSetting struct {
 	Description string `json:"description,omitempty"`
 	Help        string `json:"help,omitempty"`
 	Regex       string `json:"regex,omitempty"`
+}
+
+type Torznab struct {
+	MinInterval int              `json:"minInterval"`
+	Settings    []IndexerSetting `json:"settings"`
 }
 
 type IndexerIRC struct {
@@ -106,6 +118,54 @@ type IndexerParseExtract struct {
 type IndexerParseMatch struct {
 	TorrentURL string   `json:"torrenturl"`
 	Encode     []string `json:"encode"`
+}
+
+func (p *IndexerParse) ParseTorrentUrl(vars map[string]string, extraVars map[string]string, release *Release) error {
+	tmpVars := map[string]string{}
+
+	// copy vars to new tmp map
+	for k, v := range vars {
+		tmpVars[k] = v
+	}
+
+	// merge extra vars with vars
+	if extraVars != nil {
+		for k, v := range extraVars {
+			tmpVars[k] = v
+		}
+	}
+
+	// handle url encode of values
+	if p.Match.Encode != nil {
+		for _, e := range p.Match.Encode {
+			if v, ok := tmpVars[e]; ok {
+				// url encode  value
+				t := url.QueryEscape(v)
+				tmpVars[e] = t
+			}
+		}
+	}
+
+	// setup text template to inject variables into
+	tmpl, err := template.New("torrenturl").Parse(p.Match.TorrentURL)
+	if err != nil {
+		return errors.New("could not create torrent url template")
+	}
+
+	var urlBytes bytes.Buffer
+	err = tmpl.Execute(&urlBytes, &tmpVars)
+	if err != nil {
+		return errors.New("could not write torrent url template output")
+	}
+
+	release.TorrentURL = urlBytes.String()
+
+	// handle cookies
+	if v, ok := extraVars["cookie"]; ok {
+		release.RawCookie = v
+	}
+
+	return nil
 }
 
 type TorrentBasic struct {

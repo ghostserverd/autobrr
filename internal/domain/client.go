@@ -3,7 +3,6 @@ package domain
 import "context"
 
 type DownloadClientRepo interface {
-	//FindByActionID(actionID int) ([]DownloadClient, error)
 	List(ctx context.Context) ([]DownloadClient, error)
 	FindByID(ctx context.Context, id int32) (*DownloadClient, error)
 	Store(ctx context.Context, client DownloadClient) (*DownloadClient, error)
@@ -47,11 +46,12 @@ type BasicAuth struct {
 type DownloadClientType string
 
 const (
-	DownloadClientTypeQbittorrent DownloadClientType = "QBITTORRENT"
-	DownloadClientTypeDelugeV1    DownloadClientType = "DELUGE_V1"
-	DownloadClientTypeDelugeV2    DownloadClientType = "DELUGE_V2"
-	DownloadClientTypeRadarr      DownloadClientType = "RADARR"
-	DownloadClientTypeSonarr      DownloadClientType = "SONARR"
-	DownloadClientTypeLidarr      DownloadClientType = "LIDARR"
-	DownloadClientTypeWhisparr    DownloadClientType = "WHISPARR"
+	DownloadClientTypeQbittorrent  DownloadClientType = "QBITTORRENT"
+	DownloadClientTypeDelugeV1     DownloadClientType = "DELUGE_V1"
+	DownloadClientTypeDelugeV2     DownloadClientType = "DELUGE_V2"
+	DownloadClientTypeTransmission DownloadClientType = "TRANSMISSION"
+	DownloadClientTypeRadarr       DownloadClientType = "RADARR"
+	DownloadClientTypeSonarr       DownloadClientType = "SONARR"
+	DownloadClientTypeLidarr       DownloadClientType = "LIDARR"
+	DownloadClientTypeWhisparr     DownloadClientType = "WHISPARR"
 )

@@ -8,18 +8,22 @@ import (
 	"log"
 	"os"
 
-	"golang.org/x/crypto/ssh/terminal"
-	_ "modernc.org/sqlite"
-
+	"github.com/autobrr/autobrr/internal/config"
 	"github.com/autobrr/autobrr/internal/database"
 	"github.com/autobrr/autobrr/internal/domain"
+	"github.com/autobrr/autobrr/internal/logger"
 	"github.com/autobrr/autobrr/pkg/argon2id"
+	"github.com/autobrr/autobrr/pkg/errors"
+
+	"golang.org/x/crypto/ssh/terminal"
+	_ "modernc.org/sqlite"
 )
 
 const usage = `usage: autobrrctl --config path <action>
 
   create-user		 <username>		Create user
   change-password	 <username>		Change password for user
+  version					Print version info
   help						Show this help message
 `
 
@@ -28,6 +32,12 @@ func init() {
 		fmt.Fprintf(flag.CommandLine.Output(), usage)
 	}
 }
+
+var (
+	version = "dev"
+	commit  = ""
+	date    = ""
+)
 
 func main() {
 	var configPath string
@@ -38,15 +48,23 @@ func main() {
 		log.Fatal("--config required")
 	}
 
+	// read config
+	cfg := config.New(configPath, version)
+
+	// init new logger
+	l := logger.New(cfg.Config)
+
 	// open database connection
-	db, _ := database.NewDB(domain.Config{ConfigPath: configPath, DatabaseType: "sqlite"})
+	db, _ := database.NewDB(cfg.Config, l)
 	if err := db.Open(); err != nil {
 		log.Fatal("could not open db connection")
 	}
 
-	userRepo := database.NewUserRepo(db)
+	userRepo := database.NewUserRepo(l, db)
 
 	switch cmd := flag.Arg(0); cmd {
+	case "version":
+		fmt.Fprintf(flag.CommandLine.Output(), "Version: %v\nCommit: %v\nBuild: %v\n", version, commit, date)
 	case "create-user":
 		username := flag.Arg(1)
 		if username == "" {
@@ -131,7 +149,7 @@ func readPassword() ([]byte, error) {
 		password = scanner.Bytes()
 
 		if len(password) == 0 {
-			return nil, fmt.Errorf("zero length password")
+			return nil, errors.New("zero length password")
 		}
 	}
 

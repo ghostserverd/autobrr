@@ -19,13 +19,13 @@ type authService interface {
 
 type authHandler struct {
 	encoder encoder
-	config  domain.Config
+	config  *domain.Config
 	service authService
 
 	cookieStore *sessions.CookieStore
 }
 
-func newAuthHandler(encoder encoder, config domain.Config, cookieStore *sessions.CookieStore, service authService) *authHandler {
+func newAuthHandler(encoder encoder, config *domain.Config, cookieStore *sessions.CookieStore, service authService) *authHandler {
 	return &authHandler{
 		encoder:     encoder,
 		config:      config,
@@ -133,7 +133,7 @@ func (h authHandler) canOnboard(w http.ResponseWriter, r *http.Request) {
 
 	if userCount > 0 {
 		// send 503 service onboarding unavailable
-		http.Error(w, "Onboarding unavailable", http.StatusServiceUnavailable)
+		http.Error(w, "Onboarding unavailable", http.StatusForbidden)
 		return
 	}
 

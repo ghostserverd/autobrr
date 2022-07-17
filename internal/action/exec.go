@@ -6,32 +6,32 @@ import (
 	"time"
 
 	"github.com/autobrr/autobrr/internal/domain"
+	"github.com/autobrr/autobrr/pkg/errors"
 
-	"github.com/rs/zerolog/log"
+	"github.com/mattn/go-shellwords"
 )
 
-func (s *service) execCmd(release domain.Release, action domain.Action) {
-	log.Debug().Msgf("action exec: %v release: %v", action.Name, release.TorrentName)
+func (s *service) execCmd(action domain.Action, release domain.Release) error {
+	s.log.Debug().Msgf("action exec: %v release: %v", action.Name, release.TorrentName)
+
+	if release.TorrentTmpFile == "" && strings.Contains(action.ExecArgs, "TorrentPathName") {
+		if err := release.DownloadTorrentFile(); err != nil {
+			return errors.Wrap(err, "error downloading torrent file for release: %v", release.TorrentName)
+		}
+	}
 
 	// check if program exists
 	cmd, err := exec.LookPath(action.ExecCmd)
 	if err != nil {
-		log.Error().Stack().Err(err).Msgf("exec failed, could not find program: %v", action.ExecCmd)
-		return
+		return errors.Wrap(err, "exec failed, could not find program: %v", action.ExecCmd)
 	}
 
-	// handle args and replace vars
-	m := NewMacro(release)
-
-	// parse and replace values in argument string before continuing
-	parsedArgs, err := m.Parse(action.ExecArgs)
+	args, err := s.parseExecArgs(release, action.ExecArgs)
 	if err != nil {
-		log.Error().Stack().Err(err).Msgf("exec failed, could not parse arguments: %v", action.ExecCmd)
-		return
+		return errors.Wrap(err, "could not parse exec args: %v", action.ExecArgs)
 	}
 
 	// we need to split on space into a string slice, so we can spread the args into exec
-	args := strings.Split(parsedArgs, " ")
 
 	start := time.Now()
 
@@ -42,12 +42,34 @@ func (s *service) execCmd(release domain.Release, action domain.Action) {
 	output, err := command.CombinedOutput()
 	if err != nil {
 		// everything other than exit 0 is considered an error
-		log.Error().Stack().Err(err).Msgf("command: %v args: %v failed, torrent: %v", cmd, parsedArgs, release.TorrentTmpFile)
+		return errors.Wrap(err, "error executing command: %v args: %v", cmd, args)
 	}
 
-	log.Trace().Msgf("executed command: '%v'", string(output))
+	s.log.Trace().Msgf("executed command: '%v'", string(output))
 
 	duration := time.Since(start)
 
-	log.Info().Msgf("executed command: '%v', args: '%v' %v,%v, total time %v", cmd, parsedArgs, release.TorrentName, release.Indexer, duration)
+	s.log.Info().Msgf("executed command: '%v', args: '%v' %v,%v, total time %v", cmd, args, release.TorrentName, release.Indexer, duration)
+
+	return nil
+}
+
+func (s *service) parseExecArgs(release domain.Release, execArgs string) ([]string, error) {
+	// handle args and replace vars
+	m := NewMacro(release)
+
+	// parse and replace values in argument string before continuing
+	parsedArgs, err := m.Parse(execArgs)
+	if err != nil {
+		return nil, errors.Wrap(err, "could not parse macro")
+	}
+
+	p := shellwords.NewParser()
+	p.ParseBacktick = true
+	args, err := p.Parse(parsedArgs)
+	if err != nil {
+		return nil, errors.Wrap(err, "could not parse into shell-words")
+	}
+
+	return args, nil
 }

@@ -6,31 +6,15 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
+	"sync"
 
 	"github.com/autobrr/autobrr/internal/domain"
+	"github.com/autobrr/autobrr/internal/logger"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
 )
-
-var Config domain.Config
-
-func Defaults() domain.Config {
-	return domain.Config{
-		Host:              "localhost",
-		Port:              7474,
-		LogLevel:          "TRACE",
-		LogPath:           "",
-		BaseURL:           "/",
-		SessionSecret:     "secret-session-key",
-		CustomDefinitions: "",
-		DatabaseType:      "sqlite",
-		PostgresHost:      "",
-		PostgresPort:      0,
-		PostgresDatabase:  "",
-		PostgresUser:      "",
-		PostgresPass:      "",
-	}
-}
 
 func writeConfig(configPath string, configFile string) error {
 	path := filepath.Join(configPath, configFile)
@@ -53,6 +37,15 @@ func writeConfig(configPath string, configFile string) error {
 			return err
 		}
 
+		host := "127.0.0.1"
+		if pd, _ := os.Open("/proc/1/cgroup"); pd != nil {
+			defer pd.Close()
+			b := make([]byte, 4096, 4096)
+			pd.Read(b)
+			if strings.Contains(string(b), "/docker") || strings.Contains(string(b), "/lxc") {
+				host = "0.0.0.0"
+			}
+		}
 		defer f.Close()
 
 		_, err = f.WriteString(`# config.toml
@@ -61,7 +54,7 @@ func writeConfig(configPath string, configFile string) error {
 #
 # Default: "localhost"
 #
-host = "127.0.0.1"
+host = "` + host + `"
 
 # Port
 #
@@ -88,7 +81,7 @@ port = 7474
 #
 # Default: "DEBUG"
 #
-# Options: "ERROR", "DEBUG", "INFO", "WARN"
+# Options: "ERROR", "DEBUG", "INFO", "WARN", "TRACE"
 #
 logLevel = "DEBUG"
 
@@ -108,9 +101,46 @@ sessionSecret = "secret-session-key"`)
 	return nil
 }
 
-func Read(configPath string) domain.Config {
-	config := Defaults()
+type Config interface {
+	DynamicReload(log logger.Logger)
+}
 
+type AppConfig struct {
+	Config *domain.Config
+	m      sync.Mutex
+}
+
+func New(configPath string, version string) *AppConfig {
+	c := &AppConfig{}
+	c.defaults()
+	c.Config.Version = version
+	c.Config.ConfigPath = configPath
+
+	c.load(configPath)
+
+	return c
+}
+
+func (c *AppConfig) defaults() {
+	c.Config = &domain.Config{
+		Version:           "dev",
+		Host:              "localhost",
+		Port:              7474,
+		LogLevel:          "TRACE",
+		LogPath:           "",
+		BaseURL:           "/",
+		SessionSecret:     "secret-session-key",
+		CustomDefinitions: "",
+		DatabaseType:      "sqlite",
+		PostgresHost:      "",
+		PostgresPort:      0,
+		PostgresDatabase:  "",
+		PostgresUser:      "",
+		PostgresPass:      "",
+	}
+}
+
+func (c *AppConfig) load(configPath string) {
 	// or use viper.SetDefault(val, def)
 	//viper.SetDefault("host", config.Host)
 	//viper.SetDefault("port", config.Port)
@@ -133,7 +163,6 @@ func Read(configPath string) domain.Config {
 		}
 
 		viper.SetConfigFile(path.Join(configPath, "config.toml"))
-		config.ConfigPath = configPath
 	} else {
 		viper.SetConfigName("config")
 
@@ -148,11 +177,27 @@ func Read(configPath string) domain.Config {
 		log.Printf("config read error: %q", err)
 	}
 
-	if err := viper.Unmarshal(&config); err != nil {
+	if err := viper.Unmarshal(&c.Config); err != nil {
 		log.Fatalf("Could not unmarshal config file: %v", viper.ConfigFileUsed())
 	}
+}
 
-	Config = config
+func (c *AppConfig) DynamicReload(log logger.Logger) {
+	viper.OnConfigChange(func(e fsnotify.Event) {
+		c.m.Lock()
 
-	return config
+		logLevel := viper.GetString("logLevel")
+		c.Config.LogLevel = logLevel
+		log.SetLogLevel(c.Config.LogLevel)
+
+		logPath := viper.GetString("logPath")
+		c.Config.LogPath = logPath
+
+		log.Debug().Msg("config file reloaded!")
+
+		c.m.Unlock()
+	})
+	viper.WatchConfig()
+
+	return
 }

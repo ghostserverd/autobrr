@@ -3,14 +3,15 @@ interface Indexer {
   name: string;
   identifier: string;
   enabled: boolean;
-  type?: string;
+  implementation: string;
   settings: Array<IndexerSetting>;
 }
 
 interface IndexerDefinition {
-  id?: number;
+  id: number;
   name: string;
   identifier: string;
+  implementation: string;
   enabled?: boolean;
   description: string;
   language: string;
@@ -20,6 +21,7 @@ interface IndexerDefinition {
   supports: string[];
   settings: IndexerSetting[];
   irc: IndexerIRC;
+  torznab: IndexerTorznab;
   parse: IndexerParse;
 }
 
@@ -43,6 +45,11 @@ interface IndexerIRC {
   nickserv: boolean;
   channels: string[];
   announcers: string[];
+  settings: IndexerSetting[];
+}
+
+interface IndexerTorznab {
+  minInterval: number;
   settings: IndexerSetting[];
 }
 

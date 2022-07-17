@@ -1,18 +1,19 @@
 package download_client
 
 import (
-	"github.com/autobrr/autobrr/pkg/whisparr"
-	"github.com/pkg/errors"
+	"context"
 	"time"
 
 	"github.com/autobrr/autobrr/internal/domain"
+	"github.com/autobrr/autobrr/pkg/errors"
 	"github.com/autobrr/autobrr/pkg/lidarr"
 	"github.com/autobrr/autobrr/pkg/qbittorrent"
 	"github.com/autobrr/autobrr/pkg/radarr"
 	"github.com/autobrr/autobrr/pkg/sonarr"
+	"github.com/autobrr/autobrr/pkg/whisparr"
 
 	delugeClient "github.com/gdm85/go-libdeluge"
-	"github.com/rs/zerolog/log"
+	"github.com/hekmon/transmissionrpc/v2"
 )
 
 func (s *service) testConnection(client domain.DownloadClient) error {
@@ -22,6 +23,9 @@ func (s *service) testConnection(client domain.DownloadClient) error {
 
 	case domain.DownloadClientTypeDelugeV1, domain.DownloadClientTypeDelugeV2:
 		return s.testDelugeConnection(client)
+
+	case domain.DownloadClientTypeTransmission:
+		return s.testTransmissionConnection(client)
 
 	case domain.DownloadClientTypeRadarr:
 		return s.testRadarrConnection(client)
@@ -47,16 +51,28 @@ func (s *service) testQbittorrentConnection(client domain.DownloadClient) error 
 		Password:      client.Password,
 		TLS:           client.TLS,
 		TLSSkipVerify: client.TLSSkipVerify,
+		Log:           s.subLogger,
+	}
+
+	// only set basic auth if enabled
+	if client.Settings.Basic.Auth {
+		qbtSettings.BasicAuth = client.Settings.Basic.Auth
+		qbtSettings.Basic.Username = client.Settings.Basic.Username
+		qbtSettings.Basic.Password = client.Settings.Basic.Password
 	}
 
 	qbt := qbittorrent.NewClient(qbtSettings)
-	err := qbt.Login()
-	if err != nil {
-		log.Error().Err(err).Msgf("error logging into client: %v", client.Host)
-		return err
+
+	if err := qbt.Login(); err != nil {
+		return errors.Wrap(err, "error logging into client: %v", client.Host)
 	}
 
-	log.Debug().Msgf("test client connection for qBittorrent: success")
+	_, err := qbt.GetTorrents()
+	if err != nil {
+		return errors.Wrap(err, "error getting torrents: %v", client.Host)
+	}
+
+	s.log.Debug().Msgf("test client connection for qBittorrent: success")
 
 	return nil
 }
@@ -87,8 +103,7 @@ func (s *service) testDelugeConnection(client domain.DownloadClient) error {
 	// perform connection to Deluge server
 	err := deluge.Connect()
 	if err != nil {
-		log.Error().Err(err).Msgf("error logging into client: %v", client.Host)
-		return err
+		return errors.Wrap(err, "error logging into client: %v", client.Host)
 	}
 
 	defer deluge.Close()
@@ -96,11 +111,35 @@ func (s *service) testDelugeConnection(client domain.DownloadClient) error {
 	// print daemon version
 	ver, err := deluge.DaemonVersion()
 	if err != nil {
-		log.Error().Err(err).Msgf("could not get daemon version: %v", client.Host)
-		return err
+		return errors.Wrap(err, "could not get daemon version: %v", client.Host)
 	}
 
-	log.Debug().Msgf("test client connection for Deluge: success - daemon version: %v", ver)
+	s.log.Debug().Msgf("test client connection for Deluge: success - daemon version: %v", ver)
+
+	return nil
+}
+
+func (s *service) testTransmissionConnection(client domain.DownloadClient) error {
+	tbt, err := transmissionrpc.New(client.Host, client.Username, client.Password, &transmissionrpc.AdvancedConfig{
+		HTTPS: client.TLS,
+		Port:  uint16(client.Port),
+	})
+	if err != nil {
+		return errors.Wrap(err, "error logging into client: %v", client.Host)
+	}
+
+	ok, version, _, err := tbt.RPCVersion(context.TODO())
+	if err != nil {
+		return errors.Wrap(err, "error getting rpc info: %v", client.Host)
+	}
+
+	if !ok {
+		return errors.Wrap(err, "error getting rpc info: %v", client.Host)
+	}
+
+	s.log.Debug().Msgf("test client connection for Transmission: got version: %v", version)
+
+	s.log.Debug().Msgf("test client connection for Transmission: success")
 
 	return nil
 }
@@ -112,15 +151,15 @@ func (s *service) testRadarrConnection(client domain.DownloadClient) error {
 		BasicAuth: client.Settings.Basic.Auth,
 		Username:  client.Settings.Basic.Username,
 		Password:  client.Settings.Basic.Password,
+		Log:       s.subLogger,
 	})
 
 	_, err := r.Test()
 	if err != nil {
-		log.Error().Err(err).Msgf("radarr: connection test failed: %v", client.Host)
-		return err
+		return errors.Wrap(err, "radarr: connection test failed: %v", client.Host)
 	}
 
-	log.Debug().Msgf("test client connection for Radarr: success")
+	s.log.Debug().Msgf("test client connection for Radarr: success")
 
 	return nil
 }
@@ -132,15 +171,15 @@ func (s *service) testSonarrConnection(client domain.DownloadClient) error {
 		BasicAuth: client.Settings.Basic.Auth,
 		Username:  client.Settings.Basic.Username,
 		Password:  client.Settings.Basic.Password,
+		Log:       s.subLogger,
 	})
 
 	_, err := r.Test()
 	if err != nil {
-		log.Error().Err(err).Msgf("sonarr: connection test failed: %v", client.Host)
-		return err
+		return errors.Wrap(err, "sonarr: connection test failed: %v", client.Host)
 	}
 
-	log.Debug().Msgf("test client connection for Sonarr: success")
+	s.log.Debug().Msgf("test client connection for Sonarr: success")
 
 	return nil
 }
@@ -152,15 +191,15 @@ func (s *service) testLidarrConnection(client domain.DownloadClient) error {
 		BasicAuth: client.Settings.Basic.Auth,
 		Username:  client.Settings.Basic.Username,
 		Password:  client.Settings.Basic.Password,
+		Log:       s.subLogger,
 	})
 
 	_, err := r.Test()
 	if err != nil {
-		log.Error().Err(err).Msgf("lidarr: connection test failed: %v", client.Host)
-		return err
+		return errors.Wrap(err, "lidarr: connection test failed: %v", client.Host)
 	}
 
-	log.Debug().Msgf("test client connection for Lidarr: success")
+	s.log.Debug().Msgf("test client connection for Lidarr: success")
 
 	return nil
 }
@@ -172,15 +211,15 @@ func (s *service) testWhisparrConnection(client domain.DownloadClient) error {
 		BasicAuth: client.Settings.Basic.Auth,
 		Username:  client.Settings.Basic.Username,
 		Password:  client.Settings.Basic.Password,
+		Log:       s.subLogger,
 	})
 
 	_, err := r.Test()
 	if err != nil {
-		log.Error().Err(err).Msgf("whisparr: connection test failed: %v", client.Host)
-		return err
+		return errors.Wrap(err, "whisparr: connection test failed: %v", client.Host)
 	}
 
-	log.Debug().Msgf("test client connection for whisparr: success")
+	s.log.Debug().Msgf("test client connection for whisparr: success")
 
 	return nil
 }

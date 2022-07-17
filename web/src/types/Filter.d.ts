@@ -8,13 +8,15 @@ interface Filter {
   max_size: string;
   delay: number;
   priority: number;
+  max_downloads: number;
+  max_downloads_unit: string;
   match_releases: string;
   except_releases: string;
   use_regex: boolean;
   match_release_groups: string;
   except_release_groups: string;
   scene: boolean;
-  origins: string;
+  origins: string[];
   freeleech: boolean;
   freeleech_percent: string;
   shows: string;
@@ -26,6 +28,8 @@ interface Filter {
   containers: string[];
   match_hdr: string[];
   except_hdr: string[];
+  match_other: string[];
+  except_other: string[];
   years: string;
   artists: string;
   albums: string;
@@ -66,6 +70,12 @@ interface Action {
   ignore_rules?: boolean;
   limit_upload_speed?: number;
   limit_download_speed?: number;
+  limit_ratio?: number;
+  limit_seed_time?: number;
+  reannounce_skip: boolean;
+  reannounce_delete: boolean;
+  reannounce_interval: number;
+  reannounce_max_attempts: number;
   webhook_host: string,
   webhook_type: string;
   webhook_method: string;
@@ -75,4 +85,4 @@ interface Action {
   client_id?: number;
 }
 
-type ActionType = 'TEST' | 'EXEC' | 'WATCH_FOLDER' | 'WEBHOOK' | DownloadClientType;
+type ActionType = "TEST" | "EXEC" | "WATCH_FOLDER" | "WEBHOOK" | DownloadClientType;
