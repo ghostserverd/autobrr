@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 interface Filter {
   id: number;
   name: string;
@@ -15,13 +20,21 @@ interface Filter {
   use_regex: boolean;
   match_release_groups: string;
   except_release_groups: string;
+  match_release_tags: string;
+  except_release_tags: string;
+  use_regex_release_tags: boolean;
+  match_description: string;
+  except_description: string;
+  use_regex_description: boolean;
   scene: boolean;
   origins: string[];
+  except_origins: string[];
   freeleech: boolean;
   freeleech_percent: string;
   shows: string;
   seasons: string;
   episodes: string;
+  smart_episode: boolean;
   resolutions: string[];
   codecs: string[];
   sources: string[];
@@ -46,12 +59,18 @@ interface Filter {
   except_categories: string;
   match_uploaders: string;
   except_uploaders: string;
+  match_language: string[];
+  except_language: string[];
   tags: string;
   except_tags: string;
   tags_any: string;
   except_tags_any: string;
+  tags_match_logic: string;
+  except_tags_match_logic: string;
+  actions_count: number;
   actions: Action[];
   indexers: Indexer[];
+  external: ExternalFilter[];
 }
 
 interface Action {
@@ -68,6 +87,8 @@ interface Action {
   save_path?: string;
   paused?: boolean;
   ignore_rules?: boolean;
+  skip_hash_check: boolean;
+  content_layout?: ActionContentLayout;
   limit_upload_speed?: number;
   limit_download_speed?: number;
   limit_ratio?: number;
@@ -81,8 +102,37 @@ interface Action {
   webhook_method: string;
   webhook_data: string,
   webhook_headers: string[];
-  filter_id?: number;
+  external_download_client_id?: number;
   client_id?: number;
+  filter_id?: number;
 }
 
+type ActionContentLayout = "ORIGINAL" | "SUBFOLDER_CREATE" | "SUBFOLDER_NONE";
+
 type ActionType = "TEST" | "EXEC" | "WATCH_FOLDER" | "WEBHOOK" | DownloadClientType;
+
+type ExternalType = "EXEC" |  "WEBHOOK";
+
+type WebhookMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+interface ExternalFilter {
+  id: number;
+  index: number;
+  name: string;
+  type: ExternalType;
+  enabled: boolean;
+  exec_cmd?: string;
+  exec_args?: string;
+  exec_expect_status?: number;
+  webhook_host?: string,
+  webhook_type?: string;
+  webhook_method?: WebhookMethod;
+  webhook_data?: string,
+  webhook_headers?: string;
+  webhook_expect_status?: number;
+  webhook_retry_status?: string,
+  webhook_retry_attempts?: number;
+  webhook_retry_delay_seconds?: number;
+  webhook_retry_max_jitter_seconds?: number;
+  filter_id?: number;
+}

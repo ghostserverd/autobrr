@@ -1,9 +1,15 @@
+/*
+ * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 interface Indexer {
   id: number;
   name: string;
   identifier: string;
   enabled: boolean;
   implementation: string;
+  base_url: string;
   settings: Array<IndexerSetting>;
 }
 
@@ -12,6 +18,7 @@ interface IndexerDefinition {
   name: string;
   identifier: string;
   implementation: string;
+  base_url: string;
   enabled?: boolean;
   description: string;
   language: string;
@@ -22,6 +29,8 @@ interface IndexerDefinition {
   settings: IndexerSetting[];
   irc: IndexerIRC;
   torznab: IndexerTorznab;
+  newznab?: IndexerTorznab;
+  rss: IndexerFeed;
   parse: IndexerParse;
 }
 
@@ -53,6 +62,11 @@ interface IndexerTorznab {
   settings: IndexerSetting[];
 }
 
+interface IndexerFeed {
+  minInterval: number;
+  settings: IndexerSetting[];
+}
+
 interface IndexerParse {
   type: string;
   lines: IndexerParseLines[];
@@ -68,4 +82,11 @@ interface IndexerParseLines {
 interface IndexerParseMatch {
   torrentUrl: string;
   encode: string[];
+}
+
+interface IndexerTestApiReq {
+  id?: number;
+  identifier?: string;
+  api_user?: string;
+  api_key: string;
 }

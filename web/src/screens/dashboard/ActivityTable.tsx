@@ -1,5 +1,10 @@
+/*
+ * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 import * as React from "react";
-import { useQuery } from "react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   useTable,
   useFilters,
@@ -8,11 +13,10 @@ import {
   usePagination, FilterProps, Column
 } from "react-table";
 
-import { APIClient } from "../../api/APIClient";
-import { EmptyListState } from "../../components/emptystates";
-
-import * as Icons from "../../components/Icons";
-import * as DataTable from "../../components/data-table";
+import { APIClient } from "@api/APIClient";
+import { EmptyListState } from "@components/emptystates";
+import * as Icons from "@components/Icons";
+import * as DataTable from "@components/data-table";
 
 // This is a custom filter UI for selecting
 // a unique option from a list
@@ -34,7 +38,7 @@ function SelectColumnFilter({
     <label className="flex items-baseline gap-x-2">
       <span className="text-gray-700"><>{render("Header")}:</></span>
       <select
-        className="border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+        className="border-gray-300 rounded-md shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50"
         name={id}
         id={id}
         value={filterValue}
@@ -74,13 +78,14 @@ function Table({ columns, data }: TableProps) {
     usePagination
   );
 
-  if (!page.length)
+  if (!page.length) {
     return <EmptyListState text="No recent activity" />;
+  }
 
   // Render the UI for your table
   return (
     <div className="inline-block min-w-full mt-4 mb-2 align-middle">
-      <div className="overflow-auto bg-white shadow dark:bg-gray-800 rounded-lg">
+      <div className="bg-white shadow-lg dark:bg-gray-800 rounded-md overflow-auto">
         <table {...getTableProps()} className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-800">
             {headerGroups.map((headerGroup) => {
@@ -95,7 +100,7 @@ function Table({ columns, data }: TableProps) {
                       <th
                         key={`${rowKey}-${columnKey}`}
                         scope="col"
-                        className="first:pl-5 pl-3 pr-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase group"
+                        className="first:pl-5 first:rounded-tl-md last:rounded-tr-md pl-3 pr-3 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase group"
                         {...columnRest}
                       >
                         <div className="flex items-center justify-between">
@@ -178,15 +183,25 @@ export const ActivityTable = () => {
     }
   ], []);
 
-  const { isLoading, data } = useQuery(
-    "dash_recent_releases",
-    () => APIClient.release.findRecent(),
-    { refetchOnWindowFocus: false }
-  );
+  const { isLoading, data } = useQuery({
+    queryKey: ["dash_recent_releases"],
+    queryFn: APIClient.release.findRecent,
+    refetchOnWindowFocus: false
+  });
 
-  if (isLoading)
-    return null;
-
+  if (isLoading) {
+    return (
+      <div className="flex flex-col mt-12">
+        <h3 className="text-2xl font-medium leading-6 text-gray-900 dark:text-gray-200">
+          &nbsp;
+        </h3>
+        <div className="animate-pulse text-black dark:text-white">
+          <EmptyListState text="Loading..."/>
+        </div>
+      </div>
+    );
+  }
+  
   return (
     <div className="flex flex-col mt-12">
       <h3 className="text-2xl font-medium leading-6 text-gray-900 dark:text-gray-200">

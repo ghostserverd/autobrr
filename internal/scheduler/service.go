@@ -1,10 +1,16 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package scheduler
 
 import (
+	"sync"
 	"time"
 
+	"github.com/autobrr/autobrr/internal/domain"
 	"github.com/autobrr/autobrr/internal/logger"
 	"github.com/autobrr/autobrr/internal/notification"
+	"github.com/autobrr/autobrr/internal/update"
 	"github.com/autobrr/autobrr/pkg/errors"
 
 	"github.com/robfig/cron/v3"
@@ -14,25 +20,30 @@ import (
 type Service interface {
 	Start()
 	Stop()
-	AddJob(job cron.Job, interval string, identifier string) (int, error)
-	RemoveJobByID(id cron.EntryID) error
+	ScheduleJob(job cron.Job, interval time.Duration, identifier string) (int, error)
+	AddJob(job cron.Job, spec string, identifier string) (int, error)
 	RemoveJobByIdentifier(id string) error
+	GetNextRun(id string) (time.Time, error)
 }
 
 type service struct {
 	log             zerolog.Logger
+	config          *domain.Config
 	version         string
 	notificationSvc notification.Service
+	updateSvc       *update.Service
 
 	cron *cron.Cron
 	jobs map[string]cron.EntryID
+	m    sync.RWMutex
 }
 
-func NewService(log logger.Logger, version string, notificationSvc notification.Service) Service {
+func NewService(log logger.Logger, config *domain.Config, notificationSvc notification.Service, updateSvc *update.Service) Service {
 	return &service{
 		log:             log.With().Str("module", "scheduler").Logger(),
-		version:         version,
+		config:          config,
 		notificationSvc: notificationSvc,
+		updateSvc:       updateSvc,
 		cron: cron.New(cron.WithChain(
 			cron.Recover(cron.DefaultLogger),
 		)),
@@ -55,15 +66,20 @@ func (s *service) Start() {
 func (s *service) addAppJobs() {
 	time.Sleep(5 * time.Second)
 
-	checkUpdates := &CheckUpdatesJob{
-		Name:             "app-check-updates",
-		Log:              s.log.With().Str("job", "app-check-updates").Logger(),
-		Version:          s.version,
-		NotifSvc:         s.notificationSvc,
-		lastCheckVersion: "",
-	}
+	if s.config.CheckForUpdates {
+		checkUpdates := &CheckUpdatesJob{
+			Name:             "app-check-updates",
+			Log:              s.log.With().Str("job", "app-check-updates").Logger(),
+			Version:          s.version,
+			NotifSvc:         s.notificationSvc,
+			updateService:    s.updateSvc,
+			lastCheckVersion: s.version,
+		}
 
-	s.AddJob(checkUpdates, "2 */6 * * *", "app-check-updates")
+		if id, err := s.ScheduleJob(checkUpdates, 2*time.Hour, "app-check-updates"); err != nil {
+			s.log.Error().Err(err).Msgf("scheduler.addAppJobs: error adding job: %v", id)
+		}
+	}
 }
 
 func (s *service) Stop() {
@@ -72,34 +88,42 @@ func (s *service) Stop() {
 	return
 }
 
-func (s *service) AddJob(job cron.Job, interval string, identifier string) (int, error) {
+// ScheduleJob takes a time duration and adds a job
+func (s *service) ScheduleJob(job cron.Job, interval time.Duration, identifier string) (int, error) {
+	id := s.cron.Schedule(cron.Every(interval), cron.NewChain(cron.SkipIfStillRunning(cron.DiscardLogger)).Then(job))
 
-	id, err := s.cron.AddJob(interval, cron.NewChain(
-		cron.SkipIfStillRunning(cron.DiscardLogger)).Then(job),
-	)
-	if err != nil {
-		return 0, errors.Wrap(err, "scheduler: add job failed")
-	}
+	s.log.Debug().Msgf("scheduler.ScheduleJob: job successfully added: %s id %d", identifier, id)
 
-	s.log.Debug().Msgf("scheduler.AddJob: job successfully added: %v", id)
-
+	s.m.Lock()
 	// add to job map
 	s.jobs[identifier] = id
+	s.m.Unlock()
 
 	return int(id), nil
 }
 
-func (s *service) RemoveJobByID(id cron.EntryID) error {
-	v, ok := s.jobs[""]
-	if !ok {
-		return nil
+// AddJob takes a cron schedule and adds a job
+func (s *service) AddJob(job cron.Job, spec string, identifier string) (int, error) {
+	id, err := s.cron.AddJob(spec, cron.NewChain(cron.SkipIfStillRunning(cron.DiscardLogger)).Then(job))
+
+	if err != nil {
+		return 0, errors.Wrap(err, "could not add job to cron")
 	}
 
-	s.cron.Remove(v)
-	return nil
+	s.log.Debug().Msgf("scheduler.AddJob: job successfully added: %s id %d", identifier, id)
+
+	s.m.Lock()
+	// add to job map
+	s.jobs[identifier] = id
+	s.m.Unlock()
+
+	return int(id), nil
 }
 
 func (s *service) RemoveJobByIdentifier(id string) error {
+	s.m.Lock()
+	defer s.m.Unlock()
+
 	v, ok := s.jobs[id]
 	if !ok {
 		return nil
@@ -114,6 +138,30 @@ func (s *service) RemoveJobByIdentifier(id string) error {
 	delete(s.jobs, id)
 
 	return nil
+}
+
+func (s *service) GetNextRun(id string) (time.Time, error) {
+	entry := s.getEntryById(id)
+
+	if !entry.Valid() {
+		return time.Time{}, nil
+	}
+
+	s.log.Debug().Msgf("scheduler.GetNextRun: %s next run: %s", id, entry.Next)
+
+	return entry.Next, nil
+}
+
+func (s *service) getEntryById(id string) cron.Entry {
+	s.m.Lock()
+	defer s.m.Unlock()
+
+	v, ok := s.jobs[id]
+	if !ok {
+		return cron.Entry{}
+	}
+
+	return s.cron.Entry(v)
 }
 
 type GenericJob struct {

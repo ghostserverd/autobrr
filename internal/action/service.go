@@ -1,3 +1,6 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package action
 
 import (
@@ -7,7 +10,6 @@ import (
 	"github.com/autobrr/autobrr/internal/domain"
 	"github.com/autobrr/autobrr/internal/download_client"
 	"github.com/autobrr/autobrr/internal/logger"
-	"github.com/autobrr/autobrr/pkg/qbittorrent"
 
 	"github.com/asaskevich/EventBus"
 	"github.com/dcarbone/zadapters/zstdlog"
@@ -17,16 +19,13 @@ import (
 type Service interface {
 	Store(ctx context.Context, action domain.Action) (*domain.Action, error)
 	List(ctx context.Context) ([]domain.Action, error)
-	Delete(actionID int) error
+	Get(ctx context.Context, req *domain.GetActionRequest) (*domain.Action, error)
+	FindByFilterID(ctx context.Context, filterID int) ([]*domain.Action, error)
+	Delete(ctx context.Context, req *domain.DeleteActionRequest) error
 	DeleteByFilterID(ctx context.Context, filterID int) error
 	ToggleEnabled(actionID int) error
 
-	RunAction(action *domain.Action, release domain.Release) ([]string, error)
-}
-
-type qbitKey struct {
-	I int    // type
-	N string // name
+	RunAction(ctx context.Context, action *domain.Action, release *domain.Release) ([]string, error)
 }
 
 type service struct {
@@ -35,17 +34,14 @@ type service struct {
 	repo      domain.ActionRepo
 	clientSvc download_client.Service
 	bus       EventBus.Bus
-
-	qbitClients map[qbitKey]qbittorrent.Client
 }
 
 func NewService(log logger.Logger, repo domain.ActionRepo, clientSvc download_client.Service, bus EventBus.Bus) Service {
 	s := &service{
-		log:         log.With().Str("module", "action").Logger(),
-		repo:        repo,
-		clientSvc:   clientSvc,
-		bus:         bus,
-		qbitClients: map[qbitKey]qbittorrent.Client{},
+		log:       log.With().Str("module", "action").Logger(),
+		repo:      repo,
+		clientSvc: clientSvc,
+		bus:       bus,
 	}
 
 	s.subLogger = zstdlog.NewStdLoggerWithLevel(s.log.With().Logger(), zerolog.TraceLevel)
@@ -57,16 +53,39 @@ func (s *service) Store(ctx context.Context, action domain.Action) (*domain.Acti
 	return s.repo.Store(ctx, action)
 }
 
-func (s *service) Delete(actionID int) error {
-	return s.repo.Delete(actionID)
+func (s *service) List(ctx context.Context) ([]domain.Action, error) {
+	return s.repo.List(ctx)
+}
+
+func (s *service) Get(ctx context.Context, req *domain.GetActionRequest) (*domain.Action, error) {
+	a, err := s.repo.Get(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// optionally attach download client to action
+	if a.ClientID > 0 {
+		client, err := s.clientSvc.FindByID(ctx, a.ClientID)
+		if err != nil {
+			return nil, err
+		}
+
+		a.Client = client
+	}
+
+	return a, nil
+}
+
+func (s *service) FindByFilterID(ctx context.Context, filterID int) ([]*domain.Action, error) {
+	return s.repo.FindByFilterID(ctx, filterID)
+}
+
+func (s *service) Delete(ctx context.Context, req *domain.DeleteActionRequest) error {
+	return s.repo.Delete(ctx, req)
 }
 
 func (s *service) DeleteByFilterID(ctx context.Context, filterID int) error {
 	return s.repo.DeleteByFilterID(ctx, filterID)
-}
-
-func (s *service) List(ctx context.Context) ([]domain.Action, error) {
-	return s.repo.List(ctx)
 }
 
 func (s *service) ToggleEnabled(actionID int) error {

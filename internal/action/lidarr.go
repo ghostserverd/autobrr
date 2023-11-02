@@ -1,8 +1,10 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package action
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/autobrr/autobrr/internal/domain"
@@ -10,13 +12,13 @@ import (
 	"github.com/autobrr/autobrr/pkg/lidarr"
 )
 
-func (s *service) lidarr(action domain.Action, release domain.Release) ([]string, error) {
+func (s *service) lidarr(ctx context.Context, action *domain.Action, release domain.Release) ([]string, error) {
 	s.log.Trace().Msg("action LIDARR")
 
 	// TODO validate data
 
 	// get client for action
-	client, err := s.clientSvc.FindByID(context.TODO(), action.ClientID)
+	client, err := s.clientSvc.FindByID(ctx, action.ClientID)
 	if err != nil {
 		s.log.Error().Err(err).Msgf("lidarr: error finding client: %v", action.ClientID)
 		return nil, err
@@ -41,27 +43,31 @@ func (s *service) lidarr(action domain.Action, release domain.Release) ([]string
 		cfg.Password = client.Settings.Basic.Password
 	}
 
-	arr := lidarr.New(cfg)
+	externalId := 0
+	if client.Settings.ExternalDownloadClientId > 0 {
+		externalId = client.Settings.ExternalDownloadClientId
+	} else if action.ExternalDownloadClientID > 0 {
+		externalId = int(action.ExternalDownloadClientID)
+	}
 
 	r := lidarr.Release{
 		Title:            release.TorrentName,
-		DownloadUrl:      release.TorrentURL,
+		InfoUrl:          release.InfoURL,
+		DownloadUrl:      release.DownloadURL,
+		MagnetUrl:        release.MagnetURI,
 		Size:             int64(release.Size),
 		Indexer:          release.Indexer,
-		DownloadProtocol: "torrent",
-		Protocol:         "torrent",
+		DownloadClientId: externalId,
+		DownloadProtocol: string(release.Protocol),
+		Protocol:         string(release.Protocol),
 		PublishDate:      time.Now().Format(time.RFC3339),
 	}
 
-	// special handling for RED and OPS because their torrent names contain to little info
-	// "Artist - Album" is not enough for Lidarr to make a decision. It needs year like "Artist - Album 2022"
-	if release.Indexer == "redacted" || release.Indexer == "ops" {
-		r.Title = fmt.Sprintf("%v (%d)", release.TorrentName, release.Year)
-	}
+	arr := lidarr.New(cfg)
 
-	rejections, err := arr.Push(r)
+	rejections, err := arr.Push(ctx, r)
 	if err != nil {
-		s.log.Error().Stack().Err(err).Msgf("lidarr: failed to push release: %v", r)
+		s.log.Error().Err(err).Msgf("lidarr: failed to push release: %v", r)
 		return nil, err
 	}
 

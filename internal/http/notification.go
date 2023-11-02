@@ -1,3 +1,6 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package http
 
 import (
@@ -8,7 +11,7 @@ import (
 
 	"github.com/autobrr/autobrr/internal/domain"
 
-	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/v5"
 )
 
 type notificationService interface {
@@ -36,8 +39,11 @@ func (h notificationHandler) Routes(r chi.Router) {
 	r.Get("/", h.list)
 	r.Post("/", h.store)
 	r.Post("/test", h.test)
-	r.Put("/{notificationID}", h.update)
-	r.Delete("/{notificationID}", h.delete)
+
+	r.Route("/{notificationID}", func(r chi.Router) {
+		r.Put("/", h.update)
+		r.Delete("/", h.delete)
+	})
 }
 
 func (h notificationHandler) list(w http.ResponseWriter, r *http.Request) {
@@ -45,11 +51,11 @@ func (h notificationHandler) list(w http.ResponseWriter, r *http.Request) {
 
 	list, _, err := h.service.Find(ctx, domain.NotificationQueryParams{})
 	if err != nil {
-		h.encoder.StatusNotFound(ctx, w)
+		h.encoder.StatusNotFound(w)
 		return
 	}
 
-	h.encoder.StatusResponse(ctx, w, list, http.StatusOK)
+	h.encoder.StatusResponse(w, http.StatusOK, list)
 }
 
 func (h notificationHandler) store(w http.ResponseWriter, r *http.Request) {
@@ -59,17 +65,17 @@ func (h notificationHandler) store(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		// encode error
+		h.encoder.Error(w, err)
 		return
 	}
 
 	filter, err := h.service.Store(ctx, data)
 	if err != nil {
-		// encode error
+		h.encoder.Error(w, err)
 		return
 	}
 
-	h.encoder.StatusResponse(ctx, w, filter, http.StatusCreated)
+	h.encoder.StatusResponse(w, http.StatusCreated, filter)
 }
 
 func (h notificationHandler) update(w http.ResponseWriter, r *http.Request) {
@@ -79,17 +85,17 @@ func (h notificationHandler) update(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		// encode error
+		h.encoder.Error(w, err)
 		return
 	}
 
 	filter, err := h.service.Update(ctx, data)
 	if err != nil {
-		// encode error
+		h.encoder.Error(w, err)
 		return
 	}
 
-	h.encoder.StatusResponse(ctx, w, filter, http.StatusOK)
+	h.encoder.StatusResponse(w, http.StatusOK, filter)
 }
 
 func (h notificationHandler) delete(w http.ResponseWriter, r *http.Request) {
@@ -101,10 +107,11 @@ func (h notificationHandler) delete(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(notificationID)
 
 	if err := h.service.Delete(ctx, id); err != nil {
-		// return err
+		h.encoder.Error(w, err)
+		return
 	}
 
-	h.encoder.StatusResponse(ctx, w, nil, http.StatusNoContent)
+	h.encoder.StatusResponse(w, http.StatusNoContent, nil)
 }
 
 func (h notificationHandler) test(w http.ResponseWriter, r *http.Request) {
@@ -114,13 +121,11 @@ func (h notificationHandler) test(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		// encode error
 		h.encoder.Error(w, err)
 		return
 	}
 
-	err := h.service.Test(ctx, data)
-	if err != nil {
+	if err := h.service.Test(ctx, data); err != nil {
 		h.encoder.Error(w, err)
 		return
 	}

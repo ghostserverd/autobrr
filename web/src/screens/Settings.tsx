@@ -1,15 +1,23 @@
+/*
+ * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
+import { Suspense } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   BellIcon,
-  ChatAlt2Icon,
+  ChatBubbleLeftRightIcon,
   CogIcon,
-  CollectionIcon,
-  DownloadIcon,
+  FolderArrowDownIcon,
   KeyIcon,
-  RssIcon
-} from "@heroicons/react/outline";
+  RectangleStackIcon,
+  RssIcon,
+  Square3Stack3DIcon
+} from "@heroicons/react/24/outline";
 
-import { classNames } from "../utils";
+import { classNames } from "@utils";
+import { SectionLoader } from "@components/SectionLoader";
 
 interface NavTabType {
   name: string;
@@ -19,12 +27,14 @@ interface NavTabType {
 
 const subNavigation: NavTabType[] = [
   { name: "Application", href: "", icon: CogIcon },
+  { name: "Logs", href: "logs", icon: Square3Stack3DIcon },
   { name: "Indexers", href: "indexers", icon: KeyIcon },
-  { name: "IRC", href: "irc", icon: ChatAlt2Icon },
+  { name: "IRC", href: "irc", icon: ChatBubbleLeftRightIcon },
   { name: "Feeds", href: "feeds", icon: RssIcon },
-  { name: "Clients", href: "clients", icon: DownloadIcon },
+  { name: "Clients", href: "clients", icon: FolderArrowDownIcon },
   { name: "Notifications", href: "notifications", icon: BellIcon },
-  { name: "Releases", href: "releases", icon: CollectionIcon }
+  { name: "API keys", href: "api-keys", icon: KeyIcon },
+  { name: "Releases", href: "releases", icon: RectangleStackIcon }
   // {name: 'Regex Playground', href: 'regex-playground', icon: CogIcon, current: false}
   // {name: 'Rules', href: 'rules', icon: ClipboardCheckIcon, current: false},
 ];
@@ -44,9 +54,9 @@ function SubNavLink({ item }: NavLinkProps) {
       to={item.href}
       end
       className={({ isActive }) => classNames(
-        "border-transparent text-gray-900 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-300 group border-l-4 px-3 py-2 flex items-center text-sm font-medium",
+        "border-transparent text-gray-900 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 hover:text-gray-900 dark:hover:text-gray-300 group border-l-4 px-3 py-2 flex items-center text-sm font-medium",
         isActive ?
-          "font-bold bg-teal-50 dark:bg-gray-700 border-teal-500 dark:border-blue-500 text-teal-700 dark:text-white hover:bg-teal-50 dark:hover:bg-gray-500 hover:text-teal-700 dark:hover:text-gray-200" : ""
+          "font-bold bg-blue-50 dark:bg-gray-700 border-sky-500 dark:border-blue-500 text-sky-700 dark:text-white hover:bg-blue-100 dark:hover:bg-gray-500 hover:text-sky-700 dark:hover:text-gray-200" : ""
       )}
       aria-current={splitLocation[2] === item.href ? "page" : undefined}
     >
@@ -68,31 +78,36 @@ function SidebarNav({ subNavigation }: SidebarNavProps) {
     <aside className="py-2 lg:col-span-3">
       <nav className="space-y-1">
         {subNavigation.map((item) => (
-          <SubNavLink item={item} key={item.href}/>
+          <SubNavLink item={item} key={item.href} />
         ))}
       </nav>
     </aside>
   );
 }
 
-export default function Settings() {
+export function Settings() {
   return (
     <main>
-      <header className="py-10">
-        <div className="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h1 className="text-3xl font-bold text-black dark:text-white">Settings</h1>
-        </div>
-      </header>
+      <div className="my-6 max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8">
+        <h1 className="text-3xl font-bold text-black dark:text-white">Settings</h1>
+      </div>
 
       <div className="max-w-screen-xl mx-auto pb-6 px-4 sm:px-6 lg:pb-16 lg:px-8">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg">
           <div className="divide-y divide-gray-200 dark:divide-gray-700 lg:grid lg:grid-cols-12 lg:divide-y-0 lg:divide-x">
             <SidebarNav subNavigation={subNavigation}/>
-            <Outlet />
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center lg:col-span-9">
+                  <SectionLoader $size="large" />
+                </div>
+              }
+            >
+              <Outlet />
+            </Suspense>
           </div>
         </div>
       </div>
     </main>
   );
 }
-

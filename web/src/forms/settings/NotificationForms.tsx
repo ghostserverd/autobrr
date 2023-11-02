@@ -1,23 +1,26 @@
+/*
+ * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 import { Dialog, Transition } from "@headlessui/react";
 import { Fragment } from "react";
-import { Field, Form, Formik, FormikErrors, FormikValues } from "formik";
 import type { FieldProps } from "formik";
-import { XIcon } from "@heroicons/react/solid";
+import { Field, Form, Formik, FormikErrors, FormikValues } from "formik";
+import { XMarkIcon } from "@heroicons/react/24/solid";
 import Select, { components, ControlProps, InputProps, MenuProps, OptionProps } from "react-select";
-import {
-  PasswordFieldWide,
-  SwitchGroupWide,
-  TextFieldWide
-} from "../../components/inputs";
-import DEBUG from "../../components/debug";
-import { EventOptions, NotificationTypeOptions, SelectOption } from "../../domain/constants";
-import { useMutation } from "react-query";
-import { APIClient } from "../../api/APIClient";
-import { queryClient } from "../../App";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
-import Toast from "../../components/notifications/Toast";
-import { SlideOver } from "../../components/panels";
+
+import { NumberFieldWide, PasswordFieldWide, SwitchGroupWide, TextFieldWide } from "@components/inputs";
+import DEBUG from "@components/debug";
+import { EventOptions, NotificationTypeOptions, SelectOption } from "@domain/constants";
+import { APIClient } from "@api/APIClient";
+import Toast from "@components/notifications/Toast";
+import { SlideOver } from "@components/panels";
 import { componentMapType } from "./DownloadClientForms";
+import { notificationKeys } from "@screens/settings/Notifications";
+import { ExternalLink } from "@components/ExternalLink";
 
 const Input = (props: InputProps) => {
   return (
@@ -66,7 +69,14 @@ function FormFieldsDiscord() {
       <div className="px-4 space-y-1">
         <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">Settings</Dialog.Title>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Create a <a href="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks" rel="noopener noreferrer" target="_blank" className="font-medium text-blue-500 underline underline-offset-1 hover:text-blue-400">webhook integration</a> in your server.
+          {"Create a "}
+          <ExternalLink
+            href="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks"
+            className="font-medium text-blue-500 underline underline-offset-1 hover:text-blue-400"
+          >
+            webhook integration
+          </ExternalLink>
+          {" in your server."}
         </p>
       </div>
 
@@ -80,13 +90,39 @@ function FormFieldsDiscord() {
   );
 }
 
+function FormFieldsNotifiarr() {
+  return (
+    <div className="border-t border-gray-200 dark:border-gray-700 py-4">
+      <div className="px-4 space-y-1">
+        <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">Settings</Dialog.Title>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Enable the autobrr integration and optionally create a new API Key.
+        </p>
+      </div>
+
+      <PasswordFieldWide
+        name="api_key"
+        label="API Key"
+        help="Notifiarr API Key"
+      />
+    </div>
+  );
+}
+
 function FormFieldsTelegram() {
   return (
     <div className="border-t border-gray-200 dark:border-gray-700 py-4">
       <div className="px-4 space-y-1">
         <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">Settings</Dialog.Title>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Read how to <a href="https://core.telegram.org/bots#3-how-do-i-create-a-bot" rel="noopener noreferrer" target="_blank" className="font-medium text-blue-500 underline underline-offset-1 hover:text-blue-400">create a bot</a>.
+          {"Read how to "}
+          <ExternalLink
+            href="https://core.telegram.org/bots#3-how-do-i-create-a-bot"
+            className="font-medium text-blue-500 underline underline-offset-1 hover:text-blue-400"
+          >
+            create a bot
+          </ExternalLink>
+          {"."}
         </p>
       </div>
 
@@ -100,13 +136,82 @@ function FormFieldsTelegram() {
         label="Chat ID"
         help="Chat ID"
       />
+      <PasswordFieldWide
+        name="topic"
+        label="Message Thread ID"
+        help="Message Thread (topic) of a Supergroup"
+      />
+    </div>
+  );
+}
+
+function FormFieldsPushover() {
+  return (
+    <div className="border-t border-gray-200 dark:border-gray-700 py-4">
+      <div className="px-4 space-y-1">
+        <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">Settings</Dialog.Title>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          {"Register a new "}
+          <ExternalLink
+            href="https://support.pushover.net/i175-how-do-i-get-an-api-or-application-token"
+            className="font-medium text-blue-500 underline underline-offset-1 hover:text-blue-400"
+          >
+            application
+          </ExternalLink>
+          {" and add its API Token here."}
+        </p>
+      </div>
+
+      <PasswordFieldWide
+        name="api_key"
+        label="API Token"
+        help="API Token"
+      />
+      <PasswordFieldWide
+        name="token"
+        label="User Key"
+        help="User Key"
+      />
+      <NumberFieldWide
+        name="priority"
+        label="Priority"
+        help="-2, -1, 0 (default), 1, or 2"
+        required={true}
+      />
+    </div>
+  );
+}
+
+function FormFieldsGotify() {
+  return (
+    <div className="border-t border-gray-200 dark:border-gray-700 py-4">
+      <div className="px-4 space-y-1">
+        <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">Settings</Dialog.Title>
+      </div>
+
+      <TextFieldWide
+        name="host"
+        label="Gotify URL"
+        help="Gotify URL"
+        placeholder="https://some.gotify.server.com"
+        required={true}
+      />
+      <PasswordFieldWide
+        name="token"
+        label="Application Token"
+        help="Application Token"
+        required={true}
+      />
     </div>
   );
 }
 
 const componentMap: componentMapType = {
-  DISCORD: <FormFieldsDiscord/>,
-  TELEGRAM: <FormFieldsTelegram/>
+  DISCORD: <FormFieldsDiscord />,
+  NOTIFIARR: <FormFieldsNotifiarr />,
+  TELEGRAM: <FormFieldsTelegram />,
+  PUSHOVER: <FormFieldsPushover />,
+  GOTIFY: <FormFieldsGotify />
 };
 
 interface NotificationAddFormValues {
@@ -120,36 +225,31 @@ interface AddProps {
 }
 
 export function NotificationAddForm({ isOpen, toggle }: AddProps) {
-  const mutation = useMutation(
-    (notification: Notification) => APIClient.notifications.create(notification),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(["notifications"]);
-        toast.custom((t) => <Toast type="success" body="Notification added!" t={t} />);
-        toggle();
-      },
-      onError: () => {
-        toast.custom((t) => <Toast type="error" body="Notification could not be added" t={t} />);
-      }
+  const queryClient = useQueryClient();
+
+  const createMutation = useMutation({
+    mutationFn: (notification: ServiceNotification) => APIClient.notifications.create(notification),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: notificationKeys.lists() });
+
+      toast.custom((t) => <Toast type="success" body="Notification added!" t={t} />);
+      toggle();
+    },
+    onError: () => {
+      toast.custom((t) => <Toast type="error" body="Notification could not be added" t={t} />);
     }
-  );
+  });
 
-  const onSubmit = (formData: unknown) => {
-    mutation.mutate(formData as Notification);
-  };
+  const onSubmit = (formData: unknown) => createMutation.mutate(formData as ServiceNotification);
 
-  const testMutation = useMutation(
-    (n: Notification) => APIClient.notifications.test(n),
-    {
-      onError: (err) => {
-        console.error(err);
-      }
+  const testMutation = useMutation({
+    mutationFn: (n: ServiceNotification) => APIClient.notifications.test(n),
+    onError: (err) => {
+      console.error(err);
     }
-  );
+  });
 
-  const testNotification = (data: unknown) => {
-    testMutation.mutate(data as Notification);
-  };
+  const testNotification = (data: unknown) => testMutation.mutate(data as ServiceNotification);
 
   const validate = (values: NotificationAddFormValues) => {
     const errors = {} as FormikErrors<FormikValues>;
@@ -210,11 +310,11 @@ export function NotificationAddForm({ isOpen, toggle }: AddProps) {
                             <div className="h-7 flex items-center">
                               <button
                                 type="button"
-                                className="bg-white dark:bg-gray-700 rounded-md text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                className="bg-white dark:bg-gray-700 rounded-md text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 onClick={toggle}
                               >
                                 <span className="sr-only">Close panel</span>
-                                <XIcon className="h-6 w-6" aria-hidden="true" />
+                                <XMarkIcon className="h-6 w-6" aria-hidden="true" />
                               </button>
                             </div>
                           </div>
@@ -309,21 +409,21 @@ export function NotificationAddForm({ isOpen, toggle }: AddProps) {
                         <div className="space-x-3 flex justify-end">
                           <button
                             type="button"
-                            className="bg-white dark:bg-gray-700 py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-blue-500"
+                            className="bg-white dark:bg-gray-700 py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-blue-500"
                             onClick={() => testNotification(values)}
                           >
                             Test
                           </button>
                           <button
                             type="button"
-                            className="bg-white dark:bg-gray-700 py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-blue-500"
+                            className="bg-white dark:bg-gray-700 py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-blue-500"
                             onClick={toggle}
                           >
                             Cancel
                           </button>
                           <button
                             type="submit"
-                            className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 dark:bg-blue-600 hover:bg-indigo-700 dark:hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-blue-500"
+                            className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 dark:bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-blue-500"
                           >
                             Save
                           </button>
@@ -375,65 +475,76 @@ const EventCheckBoxes = () => (
 interface UpdateProps {
     isOpen: boolean;
     toggle: () => void;
-    notification: Notification;
+    notification: ServiceNotification;
+}
+
+interface InitialValues {
+  id: number;
+  enabled: boolean;
+  type: NotificationType;
+  name: string;
+  webhook?: string;
+  token?: string;
+  api_key?: string;
+  priority?: number;
+  channel?: string;
+  topic?: string;
+  host?: string;
+  events: NotificationEvent[];
 }
 
 export function NotificationUpdateForm({ isOpen, toggle, notification }: UpdateProps) {
-  const mutation = useMutation(
-    (notification: Notification) => APIClient.notifications.update(notification),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(["notifications"]);
-        toast.custom((t) => <Toast type="success" body={`${notification.name} was updated successfully`} t={t}/>);
-        toggle();
-      }
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: (notification: ServiceNotification) => APIClient.notifications.update(notification),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: notificationKeys.lists() });
+
+      toast.custom((t) => <Toast type="success" body={`${notification.name} was updated successfully`} t={t}/>);
+      toggle();
     }
-  );
+  });
 
-  const deleteMutation = useMutation(
-    (notificationID: number) => APIClient.notifications.delete(notificationID),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(["notifications"]);
-        toast.custom((t) => <Toast type="success" body={`${notification.name} was deleted.`} t={t}/>);
-      }
+  const onSubmit = (formData: unknown) => mutation.mutate(formData as ServiceNotification);
+
+  const deleteMutation = useMutation({
+    mutationFn: (notificationID: number) => APIClient.notifications.delete(notificationID),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: notificationKeys.lists() });
+
+      toast.custom((t) => <Toast type="success" body={`${notification.name} was deleted.`} t={t}/>);
     }
-  );
+  });
 
-  const onSubmit = (formData: unknown) => {
-    mutation.mutate(formData as Notification);
-  };
+  const deleteAction = () => deleteMutation.mutate(notification.id);
 
-  const deleteAction = () => {
-    deleteMutation.mutate(notification.id);
-  };
-
-  const testMutation = useMutation(
-    (n: Notification) => APIClient.notifications.test(n),
-    {
-      onError: (err) => {
-        console.error(err);
-      }
+  const testMutation = useMutation({
+    mutationFn: (n: ServiceNotification) => APIClient.notifications.test(n),
+    onError: (err) => {
+      console.error(err);
     }
-  );
+  });
 
-  const testNotification = (data: unknown) => {
-    testMutation.mutate(data as Notification);
-  };
+  const testNotification = (data: unknown) => testMutation.mutate(data as ServiceNotification);
 
-  const initialValues = {
+  const initialValues: InitialValues = {
     id: notification.id,
     enabled: notification.enabled,
     type: notification.type,
     name: notification.name,
     webhook: notification.webhook,
     token: notification.token,
+    api_key: notification.api_key,
+    priority: notification.priority,
     channel: notification.channel,
+    topic: notification.topic,
+    host: notification.host,
     events: notification.events || []
   };
 
   return (
-    <SlideOver
+    <SlideOver<InitialValues>
       type="UPDATE"
       title="Notification"
       isOpen={isOpen}

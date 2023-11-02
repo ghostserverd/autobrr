@@ -1,6 +1,10 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package lidarr
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,8 +29,8 @@ type Config struct {
 }
 
 type Client interface {
-	Test() (*SystemStatusResponse, error)
-	Push(release Release) ([]string, error)
+	Test(ctx context.Context) (*SystemStatusResponse, error)
+	Push(ctx context.Context, release Release) ([]string, error)
 }
 
 type client struct {
@@ -40,7 +44,7 @@ type client struct {
 func New(config Config) Client {
 
 	httpClient := &http.Client{
-		Timeout: time.Second * 30,
+		Timeout: time.Second * 120,
 	}
 
 	c := &client{
@@ -58,12 +62,15 @@ func New(config Config) Client {
 
 type Release struct {
 	Title            string `json:"title"`
-	DownloadUrl      string `json:"downloadUrl"`
+	InfoUrl          string `json:"infoUrl,omitempty"`
+	DownloadUrl      string `json:"downloadUrl,omitempty"`
+	MagnetUrl        string `json:"magnetUrl,omitempty"`
 	Size             int64  `json:"size"`
 	Indexer          string `json:"indexer"`
 	DownloadProtocol string `json:"downloadProtocol"`
 	Protocol         string `json:"protocol"`
 	PublishDate      string `json:"publishDate"`
+	DownloadClientId int    `json:"downloadClientId,omitempty"`
 }
 
 type PushResponse struct {
@@ -76,16 +83,21 @@ type PushResponse struct {
 type BadRequestResponse struct {
 	PropertyName   string `json:"propertyName"`
 	ErrorMessage   string `json:"errorMessage"`
+	ErrorCode      string `json:"errorCode"`
 	AttemptedValue string `json:"attemptedValue"`
 	Severity       string `json:"severity"`
+}
+
+func (r BadRequestResponse) String() string {
+	return fmt.Sprintf("[%s: %s] %s: %s - got value: %s", r.Severity, r.ErrorCode, r.PropertyName, r.ErrorMessage, r.AttemptedValue)
 }
 
 type SystemStatusResponse struct {
 	Version string `json:"version"`
 }
 
-func (c *client) Test() (*SystemStatusResponse, error) {
-	status, res, err := c.get("system/status")
+func (c *client) Test(ctx context.Context) (*SystemStatusResponse, error) {
+	status, res, err := c.get(ctx, "system/status")
 	if err != nil {
 		return nil, errors.Wrap(err, "lidarr client get error")
 	}
@@ -105,8 +117,8 @@ func (c *client) Test() (*SystemStatusResponse, error) {
 	return &response, nil
 }
 
-func (c *client) Push(release Release) ([]string, error) {
-	status, res, err := c.postBody("release/push", release)
+func (c *client) Push(ctx context.Context, release Release) ([]string, error) {
+	status, res, err := c.postBody(ctx, "release/push", release)
 	if err != nil {
 		return nil, errors.Wrap(err, "lidarr client post error")
 	}
@@ -114,21 +126,21 @@ func (c *client) Push(release Release) ([]string, error) {
 	c.Log.Printf("lidarr release/push response status: %v body: %v", status, string(res))
 
 	if status == http.StatusBadRequest {
-		badreqResponse := make([]*BadRequestResponse, 0)
-		err = json.Unmarshal(res, &badreqResponse)
-		if err != nil {
+		badRequestResponses := make([]*BadRequestResponse, 0)
+		if err = json.Unmarshal(res, &badRequestResponses); err != nil {
 			return nil, errors.Wrap(err, "could not unmarshal data")
 		}
 
-		if badreqResponse[0] != nil && badreqResponse[0].PropertyName == "Title" && badreqResponse[0].ErrorMessage == "Unable to parse" {
-			rejections := []string{fmt.Sprintf("unable to parse: %v", badreqResponse[0].AttemptedValue)}
-			return rejections, err
+		rejections := []string{}
+		for _, response := range badRequestResponses {
+			rejections = append(rejections, response.String())
 		}
+
+		return rejections, nil
 	}
 
 	pushResponse := PushResponse{}
-	err = json.Unmarshal(res, &pushResponse)
-	if err != nil {
+	if err = json.Unmarshal(res, &pushResponse); err != nil {
 		return nil, errors.Wrap(err, "lidarr client error json unmarshal")
 	}
 
@@ -136,7 +148,8 @@ func (c *client) Push(release Release) ([]string, error) {
 	if pushResponse.Rejected {
 		rejections := strings.Join(pushResponse.Rejections, ", ")
 
-		return pushResponse.Rejections, errors.New("lidarr push rejected: %s - reasons: %q", release.Title, rejections)
+		c.Log.Printf("lidarr release/push rejected %v reasons: %q\n", release.Title, rejections)
+		return pushResponse.Rejections, nil
 	}
 
 	return nil, nil

@@ -1,8 +1,18 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package domain
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -213,7 +223,7 @@ func TestRelease_Parse(t *testing.T) {
 				ReleaseTags: "FLAC / 24bit Lossless / Log / 100% / Cue / CD",
 				Title:       "Artist",
 				Group:       "Albumname",
-				Audio:       []string{"24BIT Lossless", "Cue", "FLAC", "Lossless", "Log100", "Log"},
+				Audio:       []string{"24BIT Lossless", "Cue", "FLAC", "Log100", "Log"},
 				Source:      "CD",
 			},
 		},
@@ -234,6 +244,26 @@ func TestRelease_Parse(t *testing.T) {
 				Year:          2007,
 				Group:         "GROUP1",
 				Other:         []string{"HYBRiD", "REMUX"},
+			},
+		},
+		{
+			name: "parse_title_1",
+			fields: Release{
+				TorrentName: "The Peripheral (2022) S01 (2160p AMZN WEB-DL H265 HDR10+ DDP 5.1 English - GROUP1)",
+			},
+			want: Release{
+				TorrentName:   "The Peripheral (2022) S01 (2160p AMZN WEB-DL H265 HDR10+ DDP 5.1 English - GROUP1)",
+				Title:         "The Peripheral",
+				Resolution:    "2160p",
+				Source:        "WEB-DL",
+				Codec:         []string{"H.265"},
+				HDR:           []string{"HDR10+"},
+				Audio:         []string{"DDP"},
+				AudioChannels: "5.1",
+				Year:          2022,
+				Group:         "GROUP1",
+				Season:        1,
+				Language:      []string{"ENGLiSH"},
 			},
 		},
 	}
@@ -270,12 +300,13 @@ func TestRelease_MapVars(t *testing.T) {
 			name:   "2",
 			fields: &Release{},
 			want: &Release{
-				TorrentName: "Good show S02 2160p ATVP WEB-DL DDP 5.1 Atmos DV HEVC-GROUP2",
-				Category:    "tv",
-				Freeleech:   true,
-				Bonus:       []string{"Freeleech"},
-				Uploader:    "Anon",
-				Size:        uint64(10000000000),
+				TorrentName:      "Good show S02 2160p ATVP WEB-DL DDP 5.1 Atmos DV HEVC-GROUP2",
+				Category:         "tv",
+				Freeleech:        true,
+				FreeleechPercent: 100,
+				Bonus:            []string{"Freeleech"},
+				Uploader:         "Anon",
+				Size:             uint64(10000000000),
 			},
 			args: args{
 				varMap: map[string]string{
@@ -423,7 +454,7 @@ func TestRelease_MapVars(t *testing.T) {
 					"torrentSize":      "10000",
 					"tags":             "hip.hop,rhythm.and.blues, 2000s",
 				},
-				definition: IndexerDefinition{Parse: &IndexerParse{ForceSizeUnit: "MB"}},
+				definition: IndexerDefinition{IRC: &IndexerIRC{Parse: &IndexerIRCParse{ForceSizeUnit: "MB"}}},
 			},
 		},
 		{
@@ -443,6 +474,52 @@ func TestRelease_MapVars(t *testing.T) {
 				"tags":         "comedy, fantasy, school.life, shounen, slice.of.life",
 				"uploader":     "Tester",
 			}},
+		},
+		{
+			name:   "10",
+			fields: &Release{},
+			want: &Release{
+				TorrentName:      "Greatest Anime Ever",
+				Year:             2022,
+				Group:            "GROUP1",
+				Tags:             []string{"comedy", "fantasy", "school.life", "shounen", "slice.of.life"},
+				Uploader:         "Tester",
+				Freeleech:        true,
+				FreeleechPercent: 100,
+				Bonus:            []string{"Freeleech"},
+			},
+			args: args{varMap: map[string]string{
+				"torrentName":  "Greatest Anime Ever",
+				"year":         "2022",
+				"releaseGroup": "GROUP1",
+				"tags":         "comedy, fantasy, school.life, shounen, slice.of.life",
+				"uploader":     "Tester",
+				"freeleech":    "VIP",
+			}},
+		},
+		{
+			name:   "11",
+			fields: &Release{},
+			want: &Release{
+				TorrentName:      "Good show S02 2160p ATVP WEB-DL DDP 5.1 Atmos DV HEVC-GROUP2",
+				Category:         "tv",
+				Freeleech:        true,
+				FreeleechPercent: 100,
+				Bonus:            []string{"Freeleech"},
+				Uploader:         "Anon",
+				Size:             uint64(10000000000),
+				Tags:             []string{"comedy", "science fiction", "fantasy", "school.life", "shounen", "slice.of.life"},
+			},
+			args: args{
+				varMap: map[string]string{
+					"torrentName": "Good show S02 2160p ATVP WEB-DL DDP 5.1 Atmos DV HEVC-GROUP2",
+					"category":    "tv",
+					"tags":        "comedy, science fiction, fantasy, school.life, shounen, slice.of.life",
+					"freeleech":   "freeleech",
+					"uploader":    "Anon",
+					"torrentSize": "10GB",
+				},
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -543,7 +620,7 @@ func TestRelease_ParseString(t *testing.T) {
 				Timestamp:                   tt.fields.Timestamp,
 				GroupID:                     tt.fields.GroupID,
 				TorrentID:                   tt.fields.TorrentID,
-				TorrentURL:                  tt.fields.TorrentURL,
+				DownloadURL:                 tt.fields.DownloadURL,
 				TorrentTmpFile:              tt.fields.TorrentTmpFile,
 				TorrentHash:                 tt.fields.TorrentHash,
 				TorrentName:                 tt.fields.TorrentName,
@@ -568,7 +645,6 @@ func TestRelease_ParseString(t *testing.T) {
 				Artists:                     tt.fields.Artists,
 				Type:                        tt.fields.Type,
 				LogScore:                    tt.fields.LogScore,
-				IsScene:                     tt.fields.IsScene,
 				Origin:                      tt.fields.Origin,
 				Tags:                        tt.fields.Tags,
 				ReleaseTags:                 tt.fields.ReleaseTags,
@@ -583,6 +659,314 @@ func TestRelease_ParseString(t *testing.T) {
 				ActionStatus:                tt.fields.ActionStatus,
 			}
 			r.ParseString(tt.args.title)
+		})
+	}
+}
+
+var trackerLessTestTorrent = `d7:comment19:This is just a test10:created by12:Johnny Bravo13:creation datei1430648794e8:encoding5:UTF-84:infod6:lengthi1128e4:name12:testfile.bin12:piece lengthi32768e6:pieces20:Õˆë	=‘UŒäiÎ^æ °Eâ?ÇÒe5:nodesl35:udp://tracker.openbittorrent.com:8035:udp://tracker.openbittorrent.com:80ee`
+
+func TestRelease_DownloadTorrentFile(t *testing.T) {
+	// disable logger
+	zerolog.SetGlobalLevel(zerolog.Disabled)
+
+	mux := http.NewServeMux()
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	mux.HandleFunc("/files/valid_torrent_as_html", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "text/html")
+		payload, _ := os.ReadFile("testdata/archlinux-2011.08.19-netinstall-i686.iso.torrent")
+		w.Write(payload)
+	})
+
+	mux.HandleFunc("/files/invalid_torrent_as_html", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "text/html")
+		payload := []byte("<html><head></head><body>This is not the torrent you are looking for</body></html>")
+		w.Write(payload)
+	})
+
+	mux.HandleFunc("/index.html", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "text/html")
+		payload := []byte("<html><head></head><body>This is not the torrent you are looking for</body></html>")
+		w.Write(payload)
+	})
+
+	mux.HandleFunc("/plaintext", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "text/plain")
+		payload := []byte("This is not a valid torrent file.")
+		w.Write(payload)
+	})
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.RequestURI, "401") {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("unauthorized"))
+			return
+		}
+		if strings.Contains(r.RequestURI, "403") {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("forbidden"))
+			return
+		}
+		if strings.Contains(r.RequestURI, "404") {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("not found"))
+			return
+		}
+		if strings.Contains(r.RequestURI, "405") {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("method not allowed"))
+			return
+		}
+
+		if strings.Contains(r.RequestURI, "file.torrent") {
+			w.WriteHeader(http.StatusOK)
+			w.Header().Set("Content-Type", "application/x-bittorrent")
+			payload, _ := os.ReadFile("testdata/archlinux-2011.08.19-netinstall-i686.iso.torrent")
+			w.Write(payload)
+			return
+		}
+
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("internal error"))
+	})
+
+	type fields struct {
+		ID                          int64
+		FilterStatus                ReleaseFilterStatus
+		Rejections                  []string
+		Indexer                     string
+		FilterName                  string
+		Protocol                    ReleaseProtocol
+		Implementation              ReleaseImplementation
+		Timestamp                   time.Time
+		GroupID                     string
+		TorrentID                   string
+		DownloadURL                 string
+		TorrentTmpFile              string
+		TorrentDataRawBytes         []byte
+		TorrentHash                 string
+		TorrentName                 string
+		Size                        uint64
+		Title                       string
+		Category                    string
+		Categories                  []string
+		Season                      int
+		Episode                     int
+		Year                        int
+		Resolution                  string
+		Source                      string
+		Codec                       []string
+		Container                   string
+		HDR                         []string
+		Audio                       []string
+		AudioChannels               string
+		Group                       string
+		Region                      string
+		Language                    []string
+		Proper                      bool
+		Repack                      bool
+		Website                     string
+		Artists                     string
+		Type                        string
+		LogScore                    int
+		Origin                      string
+		Tags                        []string
+		ReleaseTags                 string
+		Freeleech                   bool
+		FreeleechPercent            int
+		Bonus                       []string
+		Uploader                    string
+		PreTime                     string
+		Other                       []string
+		RawCookie                   string
+		AdditionalSizeCheckRequired bool
+		FilterID                    int
+		Filter                      *Filter
+		ActionStatus                []ReleaseActionStatus
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		wantErr bool
+	}{
+		{
+			name: "401",
+			fields: fields{
+				Indexer:     "mock-indexer",
+				TorrentName: "Test.Release-GROUP",
+				DownloadURL: fmt.Sprintf("%s/%d", ts.URL, 401),
+				Protocol:    ReleaseProtocolTorrent,
+			},
+			wantErr: true,
+		},
+		{
+			name: "403",
+			fields: fields{
+				Indexer:     "mock-indexer",
+				TorrentName: "Test.Release-GROUP",
+				DownloadURL: fmt.Sprintf("%s/%d", ts.URL, 403),
+				Protocol:    ReleaseProtocolTorrent,
+			},
+			wantErr: true,
+		},
+		{
+			name: "500",
+			fields: fields{
+				Indexer:     "mock-indexer",
+				TorrentName: "Test.Release-GROUP",
+				DownloadURL: fmt.Sprintf("%s/%d", ts.URL, 500),
+				Protocol:    ReleaseProtocolTorrent,
+			},
+			wantErr: true,
+		},
+		{
+			name: "ok",
+			fields: fields{
+				Indexer:     "mock-indexer",
+				TorrentName: "Test.Release-GROUP",
+				DownloadURL: fmt.Sprintf("%s/%s", ts.URL, "file.torrent"),
+				Protocol:    ReleaseProtocolTorrent,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid_torrent_with_text-html_header",
+			fields: fields{
+				Indexer:     "mock-indexer",
+				TorrentName: "Test.Release-GROUP",
+				DownloadURL: fmt.Sprintf("%s/files/%s", ts.URL, "valid_torrent_as_html"),
+				Protocol:    ReleaseProtocolTorrent,
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid_torrent_with_text-html_header",
+			fields: fields{
+				Indexer:     "mock-indexer",
+				TorrentName: "Test.Release-GROUP",
+				DownloadURL: fmt.Sprintf("%s/files/%s", ts.URL, "invalid_torrent_as_html"),
+				Protocol:    ReleaseProtocolTorrent,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &Release{
+				ID:                          tt.fields.ID,
+				FilterStatus:                tt.fields.FilterStatus,
+				Rejections:                  tt.fields.Rejections,
+				Indexer:                     tt.fields.Indexer,
+				FilterName:                  tt.fields.FilterName,
+				Protocol:                    tt.fields.Protocol,
+				Implementation:              tt.fields.Implementation,
+				Timestamp:                   tt.fields.Timestamp,
+				GroupID:                     tt.fields.GroupID,
+				TorrentID:                   tt.fields.TorrentID,
+				DownloadURL:                 tt.fields.DownloadURL,
+				TorrentTmpFile:              tt.fields.TorrentTmpFile,
+				TorrentDataRawBytes:         tt.fields.TorrentDataRawBytes,
+				TorrentHash:                 tt.fields.TorrentHash,
+				TorrentName:                 tt.fields.TorrentName,
+				Size:                        tt.fields.Size,
+				Title:                       tt.fields.Title,
+				Category:                    tt.fields.Category,
+				Categories:                  tt.fields.Categories,
+				Season:                      tt.fields.Season,
+				Episode:                     tt.fields.Episode,
+				Year:                        tt.fields.Year,
+				Resolution:                  tt.fields.Resolution,
+				Source:                      tt.fields.Source,
+				Codec:                       tt.fields.Codec,
+				Container:                   tt.fields.Container,
+				HDR:                         tt.fields.HDR,
+				Audio:                       tt.fields.Audio,
+				AudioChannels:               tt.fields.AudioChannels,
+				Group:                       tt.fields.Group,
+				Region:                      tt.fields.Region,
+				Language:                    tt.fields.Language,
+				Proper:                      tt.fields.Proper,
+				Repack:                      tt.fields.Repack,
+				Website:                     tt.fields.Website,
+				Artists:                     tt.fields.Artists,
+				Type:                        tt.fields.Type,
+				LogScore:                    tt.fields.LogScore,
+				Origin:                      tt.fields.Origin,
+				Tags:                        tt.fields.Tags,
+				ReleaseTags:                 tt.fields.ReleaseTags,
+				Freeleech:                   tt.fields.Freeleech,
+				FreeleechPercent:            tt.fields.FreeleechPercent,
+				Bonus:                       tt.fields.Bonus,
+				Uploader:                    tt.fields.Uploader,
+				PreTime:                     tt.fields.PreTime,
+				Other:                       tt.fields.Other,
+				RawCookie:                   tt.fields.RawCookie,
+				AdditionalSizeCheckRequired: tt.fields.AdditionalSizeCheckRequired,
+				FilterID:                    tt.fields.FilterID,
+				Filter:                      tt.fields.Filter,
+				ActionStatus:                tt.fields.ActionStatus,
+			}
+			err := r.DownloadTorrentFile()
+			if err == nil && tt.wantErr {
+				fmt.Println("error")
+			}
+
+		})
+	}
+}
+
+func Test_getUniqueTags(t *testing.T) {
+	type args struct {
+		target []string
+		source []string
+	}
+	tests := []struct {
+		name string
+		args args
+		want []string
+	}{
+		{
+			name: "1",
+			args: args{
+				target: []string{},
+				source: []string{"mp4"},
+			},
+			want: []string{"mp4"},
+		},
+		{
+			name: "2",
+			args: args{
+				target: []string{"mp4"},
+				source: []string{"mp4"},
+			},
+			want: []string{"mp4"},
+		},
+		{
+			name: "3",
+			args: args{
+				target: []string{"mp4"},
+				source: []string{"mp4", "dv"},
+			},
+			want: []string{"mp4", "dv"},
+		},
+		{
+			name: "4",
+			args: args{
+				target: []string{"dv"},
+				source: []string{"mp4", "dv"},
+			},
+			want: []string{"dv", "mp4"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, getUniqueTags(tt.args.target, tt.args.source), "getUniqueTags(%v, %v)", tt.args.target, tt.args.source)
 		})
 	}
 }

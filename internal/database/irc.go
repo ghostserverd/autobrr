@@ -1,3 +1,6 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package database
 
 import (
@@ -9,6 +12,7 @@ import (
 	"github.com/autobrr/autobrr/internal/logger"
 	"github.com/autobrr/autobrr/pkg/errors"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/rs/zerolog"
 )
 
@@ -26,32 +30,34 @@ func NewIrcRepo(log logger.Logger, db *DB) domain.IrcRepo {
 
 func (r *IrcRepo) GetNetworkByID(ctx context.Context, id int64) (*domain.IrcNetwork, error) {
 	queryBuilder := r.db.squirrel.
-		Select("id", "enabled", "name", "server", "port", "tls", "pass", "invite_command", "nickserv_account", "nickserv_password").
+		Select("id", "enabled", "name", "server", "port", "tls", "pass", "nick", "auth_mechanism", "auth_account", "auth_password", "invite_command", "bouncer_addr", "use_bouncer").
 		From("irc_network").
-		Where("id = ?", id)
+		Where(sq.Eq{"id": id})
 
 	query, args, err := queryBuilder.ToSql()
 	if err != nil {
 		return nil, errors.Wrap(err, "error building query")
 	}
-	r.log.Trace().Str("database", "irc.check_existing_network").Msgf("query: '%v', args: '%v'", query, args)
+	r.log.Trace().Str("database", "irc.check_existing_network").Msgf("query: '%s', args: '%v'", query, args)
 
 	var n domain.IrcNetwork
 
-	var pass, inviteCmd sql.NullString
-	var nsAccount, nsPassword sql.NullString
+	var pass, nick, inviteCmd, bouncerAddr sql.NullString
+	var account, password sql.NullString
 	var tls sql.NullBool
 
 	row := r.db.handler.QueryRowContext(ctx, query, args...)
-	if err := row.Scan(&n.ID, &n.Enabled, &n.Name, &n.Server, &n.Port, &tls, &pass, &inviteCmd, &nsAccount, &nsPassword); err != nil {
+	if err := row.Scan(&n.ID, &n.Enabled, &n.Name, &n.Server, &n.Port, &tls, &pass, &nick, &n.Auth.Mechanism, &account, &password, &inviteCmd, &bouncerAddr, &n.UseBouncer); err != nil {
 		return nil, errors.Wrap(err, "error scanning row")
 	}
 
 	n.TLS = tls.Bool
 	n.Pass = pass.String
+	n.Nick = nick.String
 	n.InviteCommand = inviteCmd.String
-	n.NickServ.Account = nsAccount.String
-	n.NickServ.Password = nsPassword.String
+	n.Auth.Account = account.String
+	n.Auth.Password = password.String
+	n.BouncerAddr = bouncerAddr.String
 
 	return &n, nil
 }
@@ -66,7 +72,7 @@ func (r *IrcRepo) DeleteNetwork(ctx context.Context, id int64) error {
 
 	queryBuilder := r.db.squirrel.
 		Delete("irc_channel").
-		Where("network_id = ?", id)
+		Where(sq.Eq{"network_id": id})
 
 	query, args, err := queryBuilder.ToSql()
 	if err != nil {
@@ -80,7 +86,7 @@ func (r *IrcRepo) DeleteNetwork(ctx context.Context, id int64) error {
 
 	netQueryBuilder := r.db.squirrel.
 		Delete("irc_network").
-		Where("id = ?", id)
+		Where(sq.Eq{"id": id})
 
 	netQuery, netArgs, err := netQueryBuilder.ToSql()
 	if err != nil {
@@ -92,10 +98,8 @@ func (r *IrcRepo) DeleteNetwork(ctx context.Context, id int64) error {
 		return errors.Wrap(err, "error executing query")
 	}
 
-	err = tx.Commit()
-	if err != nil {
+	if err := tx.Commit(); err != nil {
 		return errors.Wrap(err, "error commit deleting network")
-
 	}
 
 	return nil
@@ -103,9 +107,9 @@ func (r *IrcRepo) DeleteNetwork(ctx context.Context, id int64) error {
 
 func (r *IrcRepo) FindActiveNetworks(ctx context.Context) ([]domain.IrcNetwork, error) {
 	queryBuilder := r.db.squirrel.
-		Select("id", "enabled", "name", "server", "port", "tls", "pass", "invite_command", "nickserv_account", "nickserv_password").
+		Select("id", "enabled", "name", "server", "port", "tls", "pass", "nick", "auth_mechanism", "auth_account", "auth_password", "invite_command", "bouncer_addr", "use_bouncer").
 		From("irc_network").
-		Where("enabled = ?", true)
+		Where(sq.Eq{"enabled": true})
 
 	query, args, err := queryBuilder.ToSql()
 	if err != nil {
@@ -123,20 +127,22 @@ func (r *IrcRepo) FindActiveNetworks(ctx context.Context) ([]domain.IrcNetwork, 
 	for rows.Next() {
 		var net domain.IrcNetwork
 
-		var pass, inviteCmd sql.NullString
-		var nsAccount, nsPassword sql.NullString
+		var pass, nick, inviteCmd, bouncerAddr sql.NullString
+		var account, password sql.NullString
 		var tls sql.NullBool
 
-		if err := rows.Scan(&net.ID, &net.Enabled, &net.Name, &net.Server, &net.Port, &tls, &pass, &inviteCmd, &nsAccount, &nsPassword); err != nil {
+		if err := rows.Scan(&net.ID, &net.Enabled, &net.Name, &net.Server, &net.Port, &tls, &pass, &nick, &net.Auth.Mechanism, &account, &password, &inviteCmd, &bouncerAddr, &net.UseBouncer); err != nil {
 			return nil, errors.Wrap(err, "error scanning row")
 		}
 
 		net.TLS = tls.Bool
 		net.Pass = pass.String
+		net.Nick = nick.String
 		net.InviteCommand = inviteCmd.String
+		net.BouncerAddr = bouncerAddr.String
 
-		net.NickServ.Account = nsAccount.String
-		net.NickServ.Password = nsPassword.String
+		net.Auth.Account = account.String
+		net.Auth.Password = password.String
 
 		networks = append(networks, net)
 	}
@@ -149,7 +155,7 @@ func (r *IrcRepo) FindActiveNetworks(ctx context.Context) ([]domain.IrcNetwork, 
 
 func (r *IrcRepo) ListNetworks(ctx context.Context) ([]domain.IrcNetwork, error) {
 	queryBuilder := r.db.squirrel.
-		Select("id", "enabled", "name", "server", "port", "tls", "pass", "invite_command", "nickserv_account", "nickserv_password").
+		Select("id", "enabled", "name", "server", "port", "tls", "pass", "nick", "auth_mechanism", "auth_account", "auth_password", "invite_command", "bouncer_addr", "use_bouncer").
 		From("irc_network").
 		OrderBy("name ASC")
 
@@ -169,20 +175,22 @@ func (r *IrcRepo) ListNetworks(ctx context.Context) ([]domain.IrcNetwork, error)
 	for rows.Next() {
 		var net domain.IrcNetwork
 
-		var pass, inviteCmd sql.NullString
-		var nsAccount, nsPassword sql.NullString
+		var pass, nick, inviteCmd, bouncerAddr sql.NullString
+		var account, password sql.NullString
 		var tls sql.NullBool
 
-		if err := rows.Scan(&net.ID, &net.Enabled, &net.Name, &net.Server, &net.Port, &tls, &pass, &inviteCmd, &nsAccount, &nsPassword); err != nil {
+		if err := rows.Scan(&net.ID, &net.Enabled, &net.Name, &net.Server, &net.Port, &tls, &pass, &nick, &net.Auth.Mechanism, &account, &password, &inviteCmd, &bouncerAddr, &net.UseBouncer); err != nil {
 			return nil, errors.Wrap(err, "error scanning row")
 		}
 
 		net.TLS = tls.Bool
 		net.Pass = pass.String
+		net.Nick = nick.String
 		net.InviteCommand = inviteCmd.String
+		net.BouncerAddr = bouncerAddr.String
 
-		net.NickServ.Account = nsAccount.String
-		net.NickServ.Password = nsPassword.String
+		net.Auth.Account = account.String
+		net.Auth.Password = password.String
 
 		networks = append(networks, net)
 	}
@@ -197,7 +205,7 @@ func (r *IrcRepo) ListChannels(networkID int64) ([]domain.IrcChannel, error) {
 	queryBuilder := r.db.squirrel.
 		Select("id", "name", "enabled", "password").
 		From("irc_channel").
-		Where("network_id = ?", networkID)
+		Where(sq.Eq{"network_id": networkID})
 
 	query, args, err := queryBuilder.ToSql()
 	if err != nil {
@@ -232,49 +240,56 @@ func (r *IrcRepo) ListChannels(networkID int64) ([]domain.IrcChannel, error) {
 
 func (r *IrcRepo) CheckExistingNetwork(ctx context.Context, network *domain.IrcNetwork) (*domain.IrcNetwork, error) {
 	queryBuilder := r.db.squirrel.
-		Select("id", "enabled", "name", "server", "port", "tls", "pass", "invite_command", "nickserv_account", "nickserv_password").
+		Select("id", "enabled", "name", "server", "port", "tls", "pass", "nick", "auth_mechanism", "auth_account", "auth_password", "invite_command", "bouncer_addr", "use_bouncer").
 		From("irc_network").
-		Where("server = ?", network.Server).
-		Where("nickserv_account = ?", network.NickServ.Account)
+		Where(sq.Eq{"server": network.Server}).
+		Where(sq.Eq{"port": network.Port}).
+		Where(sq.Eq{"nick": network.Nick})
 
 	query, args, err := queryBuilder.ToSql()
 	if err != nil {
 		return nil, errors.Wrap(err, "error building query")
 	}
-	r.log.Trace().Str("database", "irc.checkExistingNetwork").Msgf("query: '%v', args: '%v'", query, args)
+	r.log.Trace().Str("database", "irc.checkExistingNetwork").Msgf("query: '%s', args: '%v'", query, args)
 
 	row := r.db.handler.QueryRowContext(ctx, query, args...)
 
 	var net domain.IrcNetwork
 
-	var pass, inviteCmd, nickPass sql.NullString
+	var pass, nick, inviteCmd, bouncerAddr sql.NullString
+	var account, password sql.NullString
 	var tls sql.NullBool
 
-	err = row.Scan(&net.ID, &net.Enabled, &net.Name, &net.Server, &net.Port, &tls, &pass, &inviteCmd, &net.NickServ.Account, &nickPass)
-	if err == sql.ErrNoRows {
-		// no result is not an error in our case
-		return nil, nil
-	} else if err != nil {
+	if err = row.Scan(&net.ID, &net.Enabled, &net.Name, &net.Server, &net.Port, &tls, &pass, &nick, &net.Auth.Mechanism, &account, &password, &inviteCmd, &bouncerAddr, &net.UseBouncer); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// no result is not an error in our case
+			return nil, nil
+		}
+
 		return nil, errors.Wrap(err, "error scanning row")
 	}
 
 	net.TLS = tls.Bool
 	net.Pass = pass.String
+	net.Nick = nick.String
 	net.InviteCommand = inviteCmd.String
-	net.NickServ.Password = nickPass.String
+	net.BouncerAddr = bouncerAddr.String
+	net.Auth.Account = account.String
+	net.Auth.Password = password.String
 
 	return &net, nil
 }
 
-func (r *IrcRepo) StoreNetwork(network *domain.IrcNetwork) error {
+func (r *IrcRepo) StoreNetwork(ctx context.Context, network *domain.IrcNetwork) error {
 	netName := toNullString(network.Name)
 	pass := toNullString(network.Pass)
+	nick := toNullString(network.Nick)
 	inviteCmd := toNullString(network.InviteCommand)
+	bouncerAddr := toNullString(network.BouncerAddr)
 
-	nsAccount := toNullString(network.NickServ.Account)
-	nsPassword := toNullString(network.NickServ.Password)
+	account := toNullString(network.Auth.Account)
+	password := toNullString(network.Auth.Password)
 
-	var err error
 	var retID int64
 
 	queryBuilder := r.db.squirrel.
@@ -286,9 +301,13 @@ func (r *IrcRepo) StoreNetwork(network *domain.IrcNetwork) error {
 			"port",
 			"tls",
 			"pass",
+			"nick",
+			"auth_mechanism",
+			"auth_account",
+			"auth_password",
 			"invite_command",
-			"nickserv_account",
-			"nickserv_password",
+			"bouncer_addr",
+			"use_bouncer",
 		).
 		Values(
 			network.Enabled,
@@ -297,30 +316,35 @@ func (r *IrcRepo) StoreNetwork(network *domain.IrcNetwork) error {
 			network.Port,
 			network.TLS,
 			pass,
+			nick,
+			network.Auth.Mechanism,
+			account,
+			password,
 			inviteCmd,
-			nsAccount,
-			nsPassword,
+			bouncerAddr,
+			network.UseBouncer,
 		).
 		Suffix("RETURNING id").
 		RunWith(r.db.handler)
 
-	err = queryBuilder.QueryRow().Scan(&retID)
-	if err != nil {
+	if err := queryBuilder.QueryRowContext(ctx).Scan(&retID); err != nil {
 		return errors.Wrap(err, "error executing query")
 	}
 
 	network.ID = retID
 
-	return err
+	return nil
 }
 
 func (r *IrcRepo) UpdateNetwork(ctx context.Context, network *domain.IrcNetwork) error {
 	netName := toNullString(network.Name)
 	pass := toNullString(network.Pass)
+	nick := toNullString(network.Nick)
 	inviteCmd := toNullString(network.InviteCommand)
+	bouncerAddr := toNullString(network.BouncerAddr)
 
-	nsAccount := toNullString(network.NickServ.Account)
-	nsPassword := toNullString(network.NickServ.Password)
+	account := toNullString(network.Auth.Account)
+	password := toNullString(network.Auth.Password)
 
 	var err error
 
@@ -332,11 +356,15 @@ func (r *IrcRepo) UpdateNetwork(ctx context.Context, network *domain.IrcNetwork)
 		Set("port", network.Port).
 		Set("tls", network.TLS).
 		Set("pass", pass).
+		Set("nick", nick).
+		Set("auth_mechanism", network.Auth.Mechanism).
+		Set("auth_account", account).
+		Set("auth_password", password).
 		Set("invite_command", inviteCmd).
-		Set("nickserv_account", nsAccount).
-		Set("nickserv_password", nsPassword).
+		Set("bouncer_addr", bouncerAddr).
+		Set("use_bouncer", network.UseBouncer).
 		Set("updated_at", time.Now().Format(time.RFC3339)).
-		Where("id = ?", network.ID)
+		Where(sq.Eq{"id": network.ID})
 
 	query, args, err := queryBuilder.ToSql()
 	if err != nil {
@@ -344,8 +372,7 @@ func (r *IrcRepo) UpdateNetwork(ctx context.Context, network *domain.IrcNetwork)
 	}
 
 	// update record
-	_, err = r.db.handler.ExecContext(ctx, query, args...)
-	if err != nil {
+	if _, err = r.db.handler.ExecContext(ctx, query, args...); err != nil {
 		return errors.Wrap(err, "error executing query")
 	}
 
@@ -364,15 +391,14 @@ func (r *IrcRepo) StoreNetworkChannels(ctx context.Context, networkID int64, cha
 
 	queryBuilder := r.db.squirrel.
 		Delete("irc_channel").
-		Where("network_id = ?", networkID)
+		Where(sq.Eq{"network_id": networkID})
 
 	query, args, err := queryBuilder.ToSql()
 	if err != nil {
 		return errors.Wrap(err, "error building query")
 	}
 
-	_, err = tx.ExecContext(ctx, query, args...)
-	if err != nil {
+	if _, err = tx.ExecContext(ctx, query, args...); err != nil {
 		return errors.Wrap(err, "error executing query")
 	}
 
@@ -402,8 +428,7 @@ func (r *IrcRepo) StoreNetworkChannels(ctx context.Context, networkID int64, cha
 		// returning
 		var retID int64
 
-		err = channelQueryBuilder.QueryRowContext(ctx).Scan(&retID)
-		if err != nil {
+		if err = channelQueryBuilder.QueryRowContext(ctx).Scan(&retID); err != nil {
 			return errors.Wrap(err, "error executing query storeNetworkChannels")
 		}
 
@@ -424,18 +449,16 @@ func (r *IrcRepo) StoreNetworkChannels(ctx context.Context, networkID int64, cha
 		//channel.ID, err = res.LastInsertId()
 	}
 
-	err = tx.Commit()
-	if err != nil {
+	if err := tx.Commit(); err != nil {
 		return errors.Wrap(err, "error commit transaction store network")
 	}
 
 	return nil
 }
 
-func (r *IrcRepo) StoreChannel(networkID int64, channel *domain.IrcChannel) error {
+func (r *IrcRepo) StoreChannel(ctx context.Context, networkID int64, channel *domain.IrcChannel) error {
 	pass := toNullString(channel.Password)
 
-	var err error
 	if channel.ID != 0 {
 		// update record
 		channelQueryBuilder := r.db.squirrel.
@@ -444,15 +467,14 @@ func (r *IrcRepo) StoreChannel(networkID int64, channel *domain.IrcChannel) erro
 			Set("detached", channel.Detached).
 			Set("name", channel.Name).
 			Set("pass", pass).
-			Where("id = ?", channel.ID)
+			Where(sq.Eq{"id": channel.ID})
 
 		query, args, err := channelQueryBuilder.ToSql()
 		if err != nil {
 			return errors.Wrap(err, "error building query")
 		}
 
-		_, err = r.db.handler.Exec(query, args...)
-		if err != nil {
+		if _, err := r.db.handler.ExecContext(ctx, query, args...); err != nil {
 			return errors.Wrap(err, "error executing query")
 		}
 	} else {
@@ -478,8 +500,7 @@ func (r *IrcRepo) StoreChannel(networkID int64, channel *domain.IrcChannel) erro
 		// returning
 		var retID int64
 
-		err = queryBuilder.QueryRow().Scan(&retID)
-		if err != nil {
+		if err := queryBuilder.QueryRowContext(ctx).Scan(&retID); err != nil {
 			return errors.Wrap(err, "error executing query")
 		}
 
@@ -501,7 +522,7 @@ func (r *IrcRepo) StoreChannel(networkID int64, channel *domain.IrcChannel) erro
 		//channel.ID, err = res.LastInsertId()
 	}
 
-	return err
+	return nil
 }
 
 func (r *IrcRepo) UpdateChannel(channel *domain.IrcChannel) error {
@@ -514,7 +535,7 @@ func (r *IrcRepo) UpdateChannel(channel *domain.IrcChannel) error {
 		Set("detached", channel.Detached).
 		Set("name", channel.Name).
 		Set("pass", pass).
-		Where("id = ?", channel.ID)
+		Where(sq.Eq{"id": channel.ID})
 
 	query, args, err := channelQueryBuilder.ToSql()
 	if err != nil {
@@ -535,7 +556,7 @@ func (r *IrcRepo) UpdateInviteCommand(networkID int64, invite string) error {
 	channelQueryBuilder := r.db.squirrel.
 		Update("irc_network").
 		Set("invite_command", invite).
-		Where("id = ?", networkID)
+		Where(sq.Eq{"id": networkID})
 
 	query, args, err := channelQueryBuilder.ToSql()
 	if err != nil {

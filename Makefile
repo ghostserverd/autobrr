@@ -3,7 +3,7 @@
 .SUFFIXES:
 
 GIT_COMMIT := $(shell git rev-parse HEAD 2> /dev/null)
-GIT_TAG := $(shell git tag --points-at HEAD 2> /dev/null | head -n 1)
+GIT_TAG := $(shell git describe --abbrev=0 --tags)
 
 SERVICE = autobrr
 GO = go
@@ -15,7 +15,7 @@ BINDIR = bin
 all: clean build
 
 deps:
-	cd web && yarn install
+	pnpm --dir web install --frozen-lockfile
 	go mod download
 
 test:
@@ -30,7 +30,7 @@ build/ctl:
 	go build -ldflags $(GOFLAGS) -o bin/autobrrctl cmd/autobrrctl/main.go
 
 build/web:
-	cd web && yarn build
+	pnpm --dir web run build
 
 build/docker:
 	docker build -t autobrr:dev -f Dockerfile . --build-arg GIT_TAG=$(GIT_TAG) --build-arg GIT_COMMIT=$(GIT_COMMIT)

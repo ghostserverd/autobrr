@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 import { Switch } from "@headlessui/react";
 
 interface CheckboxProps {
@@ -10,7 +15,7 @@ interface CheckboxProps {
 export const Checkbox = ({ label, description, value, setValue }: CheckboxProps) => (
   <Switch.Group as="li" className="py-4 flex items-center justify-between">
     <div className="flex flex-col">
-      <Switch.Label as="p" className="text-sm font-medium text-gray-900 dark:text-white" passive>
+      <Switch.Label as="p" className="text-sm font-medium whitespace-nowrap text-gray-900 dark:text-white" passive>
         {label}
       </Switch.Label>
       {description === undefined ? null : (
@@ -23,7 +28,7 @@ export const Checkbox = ({ label, description, value, setValue }: CheckboxProps)
       checked={value}
       onChange={setValue}
       className={
-        `${value ? "bg-teal-500 dark:bg-blue-500" : "bg-gray-200 dark:bg-gray-700"
+        `${value ? "bg-blue-500" : "bg-gray-200 dark:bg-gray-700"
         } ml-4 relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500`}
     >
       <span

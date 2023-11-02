@@ -1,3 +1,6 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package database
 
 const sqliteSchema = `
@@ -16,6 +19,7 @@ CREATE TABLE indexer
     id             INTEGER PRIMARY KEY,
     identifier     TEXT,
 	implementation TEXT,
+	base_url       TEXT,
     enabled        BOOLEAN,
     name           TEXT NOT NULL,
     settings       TEXT,
@@ -36,14 +40,18 @@ CREATE TABLE irc_network
     port                INTEGER NOT NULL,
     tls                 BOOLEAN,
     pass                TEXT,
+    nick                TEXT,
+    auth_mechanism      TEXT,
+    auth_account        TEXT,
+    auth_password       TEXT,
     invite_command      TEXT,
-    nickserv_account    TEXT,
-    nickserv_password   TEXT,
+    use_bouncer         BOOLEAN,
+    bouncer_addr        TEXT,
     connected           BOOLEAN,
     connected_since     TIMESTAMP,
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (server, port, nickserv_account)
+    UNIQUE (server, port, nick)
 );
 
 CREATE TABLE irc_channel
@@ -60,55 +68,90 @@ CREATE TABLE irc_channel
 
 CREATE TABLE filter
 (
-    id                    INTEGER PRIMARY KEY,
-    enabled               BOOLEAN,
-    name                  TEXT NOT NULL,
-    min_size              TEXT,
-    max_size              TEXT,
-    delay                 INTEGER,
-    priority              INTEGER DEFAULT 0 NOT NULL,
-    max_downloads         INTEGER DEFAULT 0,
-    max_downloads_unit    TEXT,
-    match_releases        TEXT,
-    except_releases       TEXT,
-    use_regex             BOOLEAN,
-    match_release_groups  TEXT,
-    except_release_groups TEXT,
-    scene                 BOOLEAN,
-    freeleech             BOOLEAN,
-    freeleech_percent     TEXT,
-    shows                 TEXT,
-    seasons               TEXT,
-    episodes              TEXT,
-    resolutions           TEXT []   DEFAULT '{}' NOT NULL,
-    codecs                TEXT []   DEFAULT '{}' NOT NULL,
-    sources               TEXT []   DEFAULT '{}' NOT NULL,
-    containers            TEXT []   DEFAULT '{}' NOT NULL,
-    match_hdr             TEXT []   DEFAULT '{}',
-    except_hdr            TEXT []   DEFAULT '{}',
-    match_other           TEXT []   DEFAULT '{}',
-    except_other          TEXT []   DEFAULT '{}',
-    years                 TEXT,
-    artists               TEXT,
-    albums                TEXT,
-    release_types_match   TEXT []   DEFAULT '{}',
-    release_types_ignore  TEXT []   DEFAULT '{}',
-    formats               TEXT []   DEFAULT '{}',
-    quality               TEXT []   DEFAULT '{}',
-	media 				  TEXT []   DEFAULT '{}',
-    log_score             INTEGER,
-    has_log               BOOLEAN,
-    has_cue               BOOLEAN,
-    perfect_flac          BOOLEAN,
-    match_categories      TEXT,
-    except_categories     TEXT,
-    match_uploaders       TEXT,
-    except_uploaders      TEXT,
-    tags                  TEXT,
-    except_tags           TEXT,
-	origins               TEXT []   DEFAULT '{}',
-    created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id                             INTEGER PRIMARY KEY,
+    enabled                        BOOLEAN,
+    name                           TEXT NOT NULL,
+    min_size                       TEXT,
+    max_size                       TEXT,
+    delay                          INTEGER,
+    priority                       INTEGER   DEFAULT 0 NOT NULL,
+    max_downloads                  INTEGER   DEFAULT 0,
+    max_downloads_unit             TEXT,
+    match_releases                 TEXT,
+    except_releases                TEXT,
+    use_regex                      BOOLEAN,
+    match_release_groups           TEXT,
+    except_release_groups          TEXT,
+    match_release_tags             TEXT,
+    except_release_tags            TEXT,
+    use_regex_release_tags         BOOLEAN DEFAULT FALSE,
+    match_description              TEXT,
+    except_description             TEXT,
+    use_regex_description          BOOLEAN DEFAULT FALSE,
+    scene                          BOOLEAN,
+    freeleech                      BOOLEAN,
+    freeleech_percent              TEXT,
+    smart_episode                  BOOLEAN DEFAULT FALSE,
+    shows                          TEXT,
+    seasons                        TEXT,
+    episodes                       TEXT,
+    resolutions                    TEXT []   DEFAULT '{}' NOT NULL,
+    codecs                         TEXT []   DEFAULT '{}' NOT NULL,
+    sources                        TEXT []   DEFAULT '{}' NOT NULL,
+    containers                     TEXT []   DEFAULT '{}' NOT NULL,
+    match_hdr                      TEXT []   DEFAULT '{}',
+    except_hdr                     TEXT []   DEFAULT '{}',
+    match_other                    TEXT []   DEFAULT '{}',
+    except_other                   TEXT []   DEFAULT '{}',
+    years                          TEXT,
+    artists                        TEXT,
+    albums                         TEXT,
+    release_types_match            TEXT []   DEFAULT '{}',
+    release_types_ignore           TEXT []   DEFAULT '{}',
+    formats                        TEXT []   DEFAULT '{}',
+    quality                        TEXT []   DEFAULT '{}',
+    media                          TEXT []   DEFAULT '{}',
+    log_score                      INTEGER,
+    has_log                        BOOLEAN,
+    has_cue                        BOOLEAN,
+    perfect_flac                   BOOLEAN,
+    match_categories               TEXT,
+    except_categories              TEXT,
+    match_uploaders                TEXT,
+    except_uploaders               TEXT,
+    match_language                 TEXT []   DEFAULT '{}',
+    except_language                TEXT []   DEFAULT '{}',
+    tags                           TEXT,
+    except_tags                    TEXT,
+    tags_match_logic               TEXT,
+    except_tags_match_logic        TEXT,
+    origins                        TEXT []   DEFAULT '{}',
+    except_origins                 TEXT []   DEFAULT '{}',
+    created_at                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE filter_external
+(
+    id                                  INTEGER PRIMARY KEY,
+    name                                TEXT     NOT NULL,
+    idx                                 INTEGER,
+    type                                TEXT,
+    enabled                             BOOLEAN,
+    exec_cmd                            TEXT,
+    exec_args                           TEXT,
+    exec_expect_status                  INTEGER,
+    webhook_host                        TEXT,
+    webhook_method                      TEXT,
+    webhook_data                        TEXT,
+    webhook_headers                     TEXT,
+    webhook_expect_status               INTEGER,
+    webhook_retry_status                TEXT,
+    webhook_retry_attempts              INTEGER,
+    webhook_retry_delay_seconds         INTEGER,
+    webhook_retry_max_jitter_seconds    INTEGER,
+    filter_id                           INTEGER NOT NULL,
+    FOREIGN KEY (filter_id)             REFERENCES filter(id) ON DELETE CASCADE
 );
 
 CREATE TABLE filter_indexer
@@ -150,6 +193,8 @@ CREATE TABLE action
     save_path               TEXT,
     paused                  BOOLEAN,
     ignore_rules            BOOLEAN,
+    skip_hash_check         BOOLEAN DEFAULT false,
+    content_layout          TEXT,
     limit_upload_speed      INT,
     limit_download_speed    INT,
     limit_ratio             REAL,
@@ -163,6 +208,7 @@ CREATE TABLE action
     webhook_type            TEXT,
     webhook_data            TEXT,
     webhook_headers         TEXT[] DEFAULT '{}',
+    external_client_id      INTEGER,
     client_id               INTEGER,
     filter_id               INTEGER,
     FOREIGN KEY (filter_id) REFERENCES filter (id),
@@ -179,6 +225,8 @@ CREATE TABLE "release"
     protocol          TEXT,
     implementation    TEXT,
     timestamp         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    info_url          TEXT,
+    download_url      TEXT,
     group_id          TEXT,
     torrent_id        TEXT,
     torrent_name      TEXT,
@@ -224,19 +272,33 @@ CREATE TABLE release_action_status
 	id            INTEGER PRIMARY KEY,
 	status        TEXT,
 	action        TEXT NOT NULL,
+	action_id     INTEGER
+        CONSTRAINT release_action_status_action_id_fk
+            REFERENCES action,
 	type          TEXT NOT NULL,
 	client        TEXT,
 	filter        TEXT,
+    filter_id     INTEGER
+        CONSTRAINT release_action_status_filter_id_fk
+            REFERENCES filter,
 	rejections    TEXT []   DEFAULT '{}' NOT NULL,
 	timestamp     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 	raw           TEXT,
 	log           TEXT,
-	release_id    INTEGER NOT NULL,
-	FOREIGN KEY (release_id) REFERENCES "release"(id) ON DELETE CASCADE
+    release_id    INTEGER NOT NULL
+        CONSTRAINT release_action_status_release_id_fkey
+            REFERENCES "release"
+            ON DELETE CASCADE
 );
+
+CREATE INDEX release_action_status_status_index
+    ON release_action_status (status);
 
 CREATE INDEX release_action_status_release_id_index
     ON release_action_status (release_id);
+
+CREATE INDEX release_action_status_filter_id_index
+    ON release_action_status (filter_id);
 
 CREATE TABLE notification
 (
@@ -257,35 +319,54 @@ CREATE TABLE notification
 	rooms      TEXT,
 	targets    TEXT,
 	devices    TEXT,
+	topic      TEXT,
+	priority   INTEGER DEFAULT 0,
 	created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE feed
 (
-	id           INTEGER PRIMARY KEY,
-	indexer      TEXT,
-	name         TEXT,
-	type         TEXT,
-	enabled      BOOLEAN,
-	url          TEXT,
-	interval     INTEGER,
-	categories   TEXT []   DEFAULT '{}' NOT NULL,
-	capabilities TEXT []   DEFAULT '{}' NOT NULL,
-	api_key      TEXT,
-	settings     TEXT,
-    indexer_id   INTEGER,
-    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	id            INTEGER PRIMARY KEY,
+	indexer       TEXT,
+	name          TEXT,
+	type          TEXT,
+	enabled       BOOLEAN,
+	url           TEXT,
+	interval      INTEGER,
+	timeout       INTEGER DEFAULT 60,
+	max_age       INTEGER DEFAULT 3600,
+	categories    TEXT []   DEFAULT '{}' NOT NULL,
+	capabilities  TEXT []   DEFAULT '{}' NOT NULL,
+	api_key       TEXT,
+	cookie        TEXT,
+	settings      TEXT,
+    indexer_id    INTEGER,
+    last_run      TIMESTAMP,
+    last_run_data TEXT,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (indexer_id) REFERENCES indexer(id) ON DELETE SET NULL
 );
 
 CREATE TABLE feed_cache
 (
-	bucket TEXT,
-	key    TEXT,
-	value  TEXT,
-	ttl    TIMESTAMP
+	feed_id INTEGER NOT NULL,
+	key     TEXT,
+	value   TEXT,
+	ttl     TIMESTAMP,
+	FOREIGN KEY (feed_id) REFERENCES feed (id) ON DELETE cascade
+);
+
+CREATE INDEX feed_cache_feed_id_key_index
+    ON feed_cache (feed_id, key);
+
+CREATE TABLE api_key
+(
+    name       TEXT,
+    key        TEXT PRIMARY KEY,
+    scopes     TEXT []   DEFAULT '{}' NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 `
 
@@ -814,4 +895,528 @@ CREATE INDEX indexer_identifier_index
 	ALTER TABLE release_action_status
 		ADD COLUMN filter TEXT;
 	`,
+	`
+	ALTER TABLE filter
+		ADD COLUMN external_script_enabled BOOLEAN DEFAULT FALSE;
+
+	ALTER TABLE filter
+		ADD COLUMN external_script_cmd TEXT;
+
+	ALTER TABLE filter
+		ADD COLUMN external_script_args TEXT;
+
+	ALTER TABLE filter
+		ADD COLUMN external_script_expect_status INTEGER;
+
+	ALTER TABLE filter
+		ADD COLUMN external_webhook_enabled BOOLEAN DEFAULT FALSE;
+
+	ALTER TABLE filter
+		ADD COLUMN external_webhook_host TEXT;
+
+	ALTER TABLE filter
+		ADD COLUMN external_webhook_data TEXT;
+
+	ALTER TABLE filter
+		ADD COLUMN external_webhook_expect_status INTEGER;
+	`,
+	`
+	ALTER TABLE action
+		ADD COLUMN skip_hash_check BOOLEAN DEFAULT FALSE;
+
+	ALTER TABLE action
+		ADD COLUMN content_layout TEXT;
+	`,
+	`
+	ALTER TABLE filter
+		ADD COLUMN except_origins TEXT []   DEFAULT '{}';
+	`,
+	`CREATE TABLE api_key
+	(
+		name       TEXT,
+		key        TEXT PRIMARY KEY,
+		scopes     TEXT []   DEFAULT '{}' NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+	`,
+	`ALTER TABLE feed
+     	ADD COLUMN timeout INTEGER DEFAULT 60;
+    `,
+	`ALTER TABLE feed
+     	ADD COLUMN max_age INTEGER DEFAULT 3600;
+
+	ALTER TABLE feed
+     	ADD COLUMN last_run TIMESTAMP;
+
+	ALTER TABLE feed
+     	ADD COLUMN last_run_data TEXT;
+
+	ALTER TABLE feed
+     	ADD COLUMN cookie TEXT;
+    `,
+	`ALTER TABLE filter
+		ADD COLUMN match_release_tags TEXT;
+
+	ALTER TABLE filter
+		ADD COLUMN except_release_tags TEXT;
+
+	ALTER TABLE filter
+		ADD COLUMN use_regex_release_tags BOOLEAN DEFAULT FALSE;
+	`,
+	`
+CREATE TABLE irc_network_dg_tmp
+(
+    id              INTEGER
+        primary key,
+    enabled         BOOLEAN,
+    name            TEXT    not null,
+    server          TEXT    not null,
+    port            INTEGER not null,
+    tls             BOOLEAN,
+    pass            TEXT,
+    nick            TEXT,
+    auth_mechanism  TEXT,
+    auth_account    TEXT,
+    auth_password   TEXT,
+    invite_command  TEXT,
+    connected       BOOLEAN,
+    connected_since TIMESTAMP,
+    created_at      TIMESTAMP default CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP default CURRENT_TIMESTAMP,
+    unique (server, port, nick)
+);
+
+INSERT INTO irc_network_dg_tmp(id, enabled, name, server, port, tls, pass, nick, auth_mechanism, auth_account, auth_password, invite_command, 
+                               connected, connected_since, created_at, updated_at)
+SELECT id,
+       enabled,
+       name,
+       server,
+       port,
+       tls,
+       pass,
+       nickserv_account,
+       'SASL_PLAIN',
+       nickserv_account,
+       nickserv_password,
+       invite_command,
+       connected,
+       connected_since,
+       created_at,
+       updated_at
+FROM irc_network;
+
+DROP TABLE irc_network;
+
+ALTER TABLE irc_network_dg_tmp
+    RENAME TO irc_network;
+	`,
+	`ALTER TABLE indexer
+     	ADD COLUMN base_url TEXT;
+    `,
+	`ALTER TABLE "filter"
+	ADD COLUMN smart_episode BOOLEAN DEFAULT false;
+	`,
+	`ALTER TABLE "filter"
+		ADD COLUMN match_language TEXT []   DEFAULT '{}';
+
+	ALTER TABLE "filter"
+		ADD COLUMN except_language TEXT []   DEFAULT '{}';
+	`,
+	`CREATE TABLE release_action_status_dg_tmp
+(
+    id         INTEGER
+        PRIMARY KEY,
+    status     TEXT,
+    action     TEXT                   NOT NULL,
+    type       TEXT                   NOT NULL,
+    rejections TEXT      DEFAULT '{}' NOT NULL,
+    timestamp  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    raw        TEXT,
+    log        TEXT,
+    release_id INTEGER                NOT NULL
+        constraint release_action_status_release_id_fkey
+            references "release"
+            on delete cascade,
+    client     TEXT,
+    filter     TEXT,
+    filter_id  INTEGER
+        CONSTRAINT release_action_status_filter_id_fk
+            REFERENCES filter
+);
+
+INSERT INTO release_action_status_dg_tmp(id, status, action, type, rejections, timestamp, raw, log, release_id, client, filter)
+SELECT id,
+       status,
+       action,
+       type,
+       rejections,
+       timestamp,
+       raw,
+       log,
+       release_id,
+       client,
+       filter
+FROM release_action_status;
+
+DROP TABLE release_action_status;
+
+ALTER TABLE release_action_status_dg_tmp
+    RENAME TO release_action_status;
+
+CREATE INDEX release_action_status_filter_id_index
+    ON release_action_status (filter_id);
+
+CREATE INDEX release_action_status_release_id_index
+    ON release_action_status (release_id);
+
+CREATE INDEX release_action_status_status_index
+    ON release_action_status (status);
+
+UPDATE release_action_status
+SET filter_id = (SELECT f.id
+FROM filter f WHERE f.name = release_action_status.filter);
+	`,
+	`ALTER TABLE "release"
+ADD COLUMN info_url TEXT;
+    
+ALTER TABLE "release"
+ADD COLUMN download_url TEXT;
+	`,
+	`ALTER TABLE filter
+		ADD COLUMN tags_match_logic TEXT;
+
+	ALTER TABLE filter
+		ADD COLUMN except_tags_match_logic TEXT;
+    
+    UPDATE filter
+    SET tags_match_logic = 'ANY'
+    WHERE tags IS NOT NULL;
+
+    UPDATE filter
+    SET except_tags_match_logic = 'ANY'
+    WHERE except_tags IS NOT NULL;
+	`,
+	`ALTER TABLE notification
+ADD COLUMN priority INTEGER DEFAULT 0;`,
+	`ALTER TABLE notification
+ADD COLUMN topic text;`,
+	`ALTER TABLE filter
+		ADD COLUMN match_description TEXT;
+
+	ALTER TABLE filter
+		ADD COLUMN except_description TEXT;
+
+	ALTER TABLE filter
+		ADD COLUMN use_regex_description BOOLEAN DEFAULT FALSE;`,
+	`create table release_action_status_dg_tmp
+(
+    id         INTEGER
+        primary key,
+    status     TEXT,
+    action     TEXT                   not null,
+    action_id  INTEGER
+        constraint release_action_status_action_id_fk
+            references action,
+    type       TEXT                   not null,
+    rejections TEXT      default '{}' not null,
+    timestamp  TIMESTAMP default CURRENT_TIMESTAMP,
+    raw        TEXT,
+    log        TEXT,
+    release_id INTEGER                not null
+        constraint release_action_status_release_id_fkey
+            references "release"
+            on delete cascade,
+    client     TEXT,
+    filter     TEXT,
+    filter_id  INTEGER
+        constraint release_action_status_filter_id_fk
+            references filter
+);
+
+insert into release_action_status_dg_tmp(id, status, action, type, rejections, timestamp, raw, log, release_id, client,
+                                         filter, filter_id)
+select id,
+       status,
+       action,
+       type,
+       rejections,
+       timestamp,
+       raw,
+       log,
+       release_id,
+       client,
+       filter,
+       filter_id
+from release_action_status;
+
+drop table release_action_status;
+
+alter table release_action_status_dg_tmp
+    rename to release_action_status;
+
+create index release_action_status_filter_id_index
+    on release_action_status (filter_id);
+
+create index release_action_status_release_id_index
+    on release_action_status (release_id);
+
+create index release_action_status_status_index
+    on release_action_status (status);`,
+	`ALTER TABLE irc_network
+ADD COLUMN use_bouncer BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE irc_network
+ADD COLUMN bouncer_addr TEXT;`,
+	`CREATE TABLE filter_external
+(
+    id                      INTEGER PRIMARY KEY,
+    name                    TEXT     NOT NULL,
+    idx                     INTEGER,
+    type                    TEXT,
+    enabled                 BOOLEAN,
+    exec_cmd                TEXT,
+    exec_args               TEXT,
+    exec_expect_status      INTEGER,
+    webhook_host            TEXT,
+    webhook_method          TEXT,
+    webhook_data            TEXT,
+    webhook_headers         TEXT,
+    webhook_expect_status   INTEGER,
+    filter_id               INTEGER NOT NULL,
+    FOREIGN KEY (filter_id) REFERENCES filter(id) ON DELETE CASCADE
+);
+
+INSERT INTO "filter_external" (name, type, enabled, exec_cmd, exec_args, exec_expect_status, filter_id)
+SELECT 'exec', 'EXEC', external_script_enabled, external_script_cmd, external_script_args, external_script_expect_status, id FROM "filter" WHERE external_script_enabled = true;
+
+INSERT INTO "filter_external" (name, type, enabled, webhook_host, webhook_data, webhook_method, webhook_expect_status, filter_id)
+SELECT 'webhook', 'WEBHOOK', external_webhook_enabled, external_webhook_host, external_webhook_data, 'POST', external_webhook_expect_status, id FROM "filter" WHERE external_webhook_enabled = true;
+
+create table filter_dg_tmp
+(
+    id                      INTEGER primary key,
+    enabled                 BOOLEAN,
+    name                    TEXT     not null,
+    min_size                TEXT,
+    max_size                TEXT,
+    delay                   INTEGER,
+    match_releases          TEXT,
+    except_releases         TEXT,
+    use_regex               BOOLEAN,
+    match_release_groups    TEXT,
+    except_release_groups   TEXT,
+    scene                   BOOLEAN,
+    freeleech               BOOLEAN,
+    freeleech_percent       TEXT,
+    shows                   TEXT,
+    seasons                 TEXT,
+    episodes                TEXT,
+    resolutions             TEXT      default '{}' not null,
+    codecs                  TEXT      default '{}' not null,
+    sources                 TEXT      default '{}' not null,
+    containers              TEXT      default '{}' not null,
+    match_hdr               TEXT      default '{}',
+    except_hdr              TEXT      default '{}',
+    years                   TEXT,
+    artists                 TEXT,
+    albums                  TEXT,
+    release_types_match     TEXT      default '{}',
+    release_types_ignore    TEXT      default '{}',
+    formats                 TEXT      default '{}',
+    quality                 TEXT      default '{}',
+    media                   TEXT      default '{}',
+    log_score               INTEGER,
+    has_log                 BOOLEAN,
+    has_cue                 BOOLEAN,
+    perfect_flac            BOOLEAN,
+    match_categories        TEXT,
+    except_categories       TEXT,
+    match_uploaders         TEXT,
+    except_uploaders        TEXT,
+    tags                    TEXT,
+    except_tags             TEXT,
+    created_at              TIMESTAMP default CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP default CURRENT_TIMESTAMP,
+    priority                INTEGER   default 0    not null,
+    origins                 TEXT      default '{}',
+    match_other             TEXT      default '{}',
+    except_other            TEXT      default '{}',
+    max_downloads           INTEGER   default 0,
+    max_downloads_unit      TEXT,
+    except_origins          TEXT      default '{}',
+    match_release_tags      TEXT,
+    except_release_tags     TEXT,
+    use_regex_release_tags  BOOLEAN   default FALSE,
+    smart_episode           BOOLEAN   default false,
+    match_language          TEXT      default '{}',
+    except_language         TEXT      default '{}',
+    tags_match_logic        TEXT,
+    except_tags_match_logic TEXT,
+    match_description       TEXT,
+    except_description      TEXT,
+    use_regex_description   BOOLEAN   default FALSE
+);
+
+insert into filter_dg_tmp(id, enabled, name, min_size, max_size, delay, match_releases, except_releases, use_regex,
+                          match_release_groups, except_release_groups, scene, freeleech, freeleech_percent, shows,
+                          seasons, episodes, resolutions, codecs, sources, containers, match_hdr, except_hdr, years,
+                          artists, albums, release_types_match, release_types_ignore, formats, quality, media,
+                          log_score, has_log, has_cue, perfect_flac, match_categories, except_categories,
+                          match_uploaders, except_uploaders, tags, except_tags, created_at, updated_at, priority,
+                          origins, match_other, except_other, max_downloads, max_downloads_unit, except_origins,
+                          match_release_tags, except_release_tags, use_regex_release_tags, smart_episode,
+                          match_language, except_language, tags_match_logic, except_tags_match_logic, match_description,
+                          except_description, use_regex_description)
+select id,
+       enabled,
+       name,
+       min_size,
+       max_size,
+       delay,
+       match_releases,
+       except_releases,
+       use_regex,
+       match_release_groups,
+       except_release_groups,
+       scene,
+       freeleech,
+       freeleech_percent,
+       shows,
+       seasons,
+       episodes,
+       resolutions,
+       codecs,
+       sources,
+       containers,
+       match_hdr,
+       except_hdr,
+       years,
+       artists,
+       albums,
+       release_types_match,
+       release_types_ignore,
+       formats,
+       quality,
+       media,
+       log_score,
+       has_log,
+       has_cue,
+       perfect_flac,
+       match_categories,
+       except_categories,
+       match_uploaders,
+       except_uploaders,
+       tags,
+       except_tags,
+       created_at,
+       updated_at,
+       priority,
+       origins,
+       match_other,
+       except_other,
+       max_downloads,
+       max_downloads_unit,
+       except_origins,
+       match_release_tags,
+       except_release_tags,
+       use_regex_release_tags,
+       smart_episode,
+       match_language,
+       except_language,
+       tags_match_logic,
+       except_tags_match_logic,
+       match_description,
+       except_description,
+       use_regex_description
+from filter;
+
+drop table filter;
+
+alter table filter_dg_tmp
+    rename to filter;
+`,
+	`DROP TABLE IF EXISTS feed_cache;
+
+CREATE TABLE feed_cache
+(
+	feed_id INTEGER NOT NULL,
+	key     TEXT,
+	value   TEXT,
+	ttl     TIMESTAMP,
+	FOREIGN KEY (feed_id) REFERENCES feed (id) ON DELETE cascade
+);
+
+CREATE INDEX feed_cache_feed_id_key_index
+    ON feed_cache (feed_id, key);
+`,
+	`ALTER TABLE action
+ADD COLUMN external_client_id INTEGER;
+`,
+	`ALTER TABLE filter_external
+ADD COLUMN external_webhook_retry_status TEXT;
+
+ALTER TABLE filter_external
+	ADD COLUMN external_webhook_retry_attempts INTEGER;
+
+ALTER TABLE filter_external
+	ADD COLUMN external_webhook_retry_delay_seconds INTEGER;
+
+ALTER TABLE filter_external
+	ADD COLUMN external_webhook_retry_max_jitter_seconds INTEGER;
+`,
+	`
+CREATE TABLE filter_external_dg_tmp
+(
+    id                               INTEGER PRIMARY KEY,
+    name                             TEXT    NOT NULL,
+    idx                              INTEGER,
+    type                             TEXT,
+    enabled                          BOOLEAN,
+    exec_cmd                         TEXT,
+    exec_args                        TEXT,
+    exec_expect_status               INTEGER,
+    webhook_host                     TEXT,
+    webhook_method                   TEXT,
+    webhook_data                     TEXT,
+    webhook_headers                  TEXT,
+    webhook_expect_status            INTEGER,
+    webhook_retry_status             TEXT,
+    webhook_retry_attempts           INTEGER,
+    webhook_retry_delay_seconds      INTEGER,
+    webhook_retry_max_jitter_seconds INTEGER,
+    filter_id                        INTEGER NOT NULL
+        REFERENCES filter
+            ON DELETE CASCADE
+);
+
+INSERT INTO filter_external_dg_tmp(id, name, idx, type, enabled, exec_cmd, exec_args, exec_expect_status, webhook_host,
+                                   webhook_method, webhook_data, webhook_headers, webhook_expect_status, filter_id,
+                                   webhook_retry_status, webhook_retry_attempts, webhook_retry_delay_seconds,
+                                   webhook_retry_max_jitter_seconds)
+SELECT id,
+       name,
+       idx,
+       type,
+       enabled,
+       exec_cmd,
+       exec_args,
+       exec_expect_status,
+       webhook_host,
+       webhook_method,
+       webhook_data,
+       webhook_headers,
+       webhook_expect_status,
+       filter_id,
+       external_webhook_retry_status,
+       external_webhook_retry_attempts,
+       external_webhook_retry_delay_seconds,
+       external_webhook_retry_max_jitter_seconds
+FROM filter_external;
+
+DROP TABLE filter_external;
+
+ALTER TABLE filter_external_dg_tmp
+    RENAME TO filter_external;
+`,
 }

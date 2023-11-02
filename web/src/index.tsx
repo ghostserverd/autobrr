@@ -1,7 +1,12 @@
+/*
+ * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { Buffer } from "buffer";
 
-import "@fontsource/inter/variable.css";
 import "./index.css";
 
 import { App } from "./App";
@@ -12,6 +17,9 @@ declare global {
 }
 
 window.APP = window.APP || {};
+// Apparently Stacktracey requires this for some weird reason
+// (at least in local dev env)
+window.Buffer = Buffer;
 
 // Initializes auth and theme contexts
 InitializeGlobalContext();

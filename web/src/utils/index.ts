@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 import { formatDistanceToNowStrict, formatISO9075 } from "date-fns";
 
 // sleep for x ms
@@ -9,17 +14,12 @@ export function sleep(ms: number) {
 export function baseUrl() {
   let baseUrl = "";
   if (window.APP.baseUrl) {
-    if (window.APP.baseUrl === "/") {
+    if (window.APP.baseUrl === "{{.BaseUrl}}") {
       baseUrl = "/";
-    } else if (window.APP.baseUrl === "{{.BaseUrl}}") {
-      baseUrl = "/";
-    } else if (window.APP.baseUrl === "/autobrr/") {
-      baseUrl = "/autobrr/";
     } else {
       baseUrl = window.APP.baseUrl;
     }
   }
-
   return baseUrl;
 }
 
@@ -39,16 +39,16 @@ export function classNames(...classes: string[]) {
 export type COL_WIDTHS = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 
 // simplify date
-export function simplifyDate(date: string) {
-  if (date !== "0001-01-01T00:00:00Z") {
+export function simplifyDate(date?: string) {
+  if (typeof(date) === "string" && date !== "0001-01-01T00:00:00Z") {
     return formatISO9075(new Date(date));
   }
   return "n/a";
 }
 
 // if empty date show as n/a
-export function IsEmptyDate(date: string) {
-  if (date !== "0001-01-01T00:00:00Z") {
+export function IsEmptyDate(date?: string) {
+  if (typeof(date) === "string" && date !== "0001-01-01T00:00:00Z") {
     return formatDistanceToNowStrict(
       new Date(date),
       { addSuffix: true }

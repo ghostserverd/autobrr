@@ -1,9 +1,14 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package btn
 
 import (
-	"io/ioutil"
+	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -34,7 +39,7 @@ func TestAPI(t *testing.T) {
 		//}
 
 		// read json response
-		jsonPayload, _ := ioutil.ReadFile("testdata/btn_get_user_info.json")
+		jsonPayload, _ := os.ReadFile("testdata/btn_get_user_info.json")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonPayload)
@@ -64,7 +69,7 @@ func TestAPI(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			c := NewClient(tt.fields.Url, tt.fields.APIKey)
 
-			got, err := c.TestAPI()
+			got, err := c.TestAPI(context.Background())
 			if tt.wantErr && assert.Error(t, err) {
 				assert.Equal(t, tt.wantErr, err)
 			}
@@ -90,7 +95,7 @@ func TestClient_GetTorrentByID(t *testing.T) {
 		}
 
 		defer r.Body.Close()
-		data, err := ioutil.ReadAll(r.Body)
+		data, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Errorf("expected error to be nil got %v", err)
 		}
@@ -105,7 +110,7 @@ func TestClient_GetTorrentByID(t *testing.T) {
 		}
 
 		if !strings.Contains(string(data), key) {
-			jsonPayload, _ := ioutil.ReadFile("testdata/btn_bad_creds.json")
+			jsonPayload, _ := os.ReadFile("testdata/btn_bad_creds.json")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write(jsonPayload)
@@ -113,7 +118,7 @@ func TestClient_GetTorrentByID(t *testing.T) {
 		}
 
 		// read json response
-		jsonPayload, _ := ioutil.ReadFile("testdata/btn_get_torrent_by_id.json")
+		jsonPayload, _ := os.ReadFile("testdata/btn_get_torrent_by_id.json")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonPayload)
@@ -164,7 +169,7 @@ func TestClient_GetTorrentByID(t *testing.T) {
 
 			c := NewClient(tt.fields.Url, tt.fields.APIKey)
 
-			got, err := c.GetTorrentByID(tt.args.torrentID)
+			got, err := c.GetTorrentByID(context.Background(), tt.args.torrentID)
 			if tt.wantErr && assert.Error(t, err) {
 				assert.Equal(t, tt.wantErr, err)
 			}

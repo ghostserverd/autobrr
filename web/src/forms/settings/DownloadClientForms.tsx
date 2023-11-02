@@ -1,20 +1,32 @@
-import React, { Fragment, useRef, useState } from "react";
-import { useMutation } from "react-query";
-import { Dialog, Transition } from "@headlessui/react";
-import { XIcon } from "@heroicons/react/solid";
-import { classNames, sleep } from "../../utils";
-import { Form, Formik, useFormikContext } from "formik";
-import DEBUG from "../../components/debug";
-import { queryClient } from "../../App";
-import { APIClient } from "../../api/APIClient";
-import { DownloadClientTypeOptions } from "../../domain/constants";
+/*
+ * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
 
+import { Fragment, useRef, useState, ReactElement } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Dialog, Transition } from "@headlessui/react";
+import { XMarkIcon } from "@heroicons/react/24/solid";
+import { Form, Formik, useFormikContext } from "formik";
 import { toast } from "react-hot-toast";
-import Toast from "../../components/notifications/Toast";
-import { useToggle } from "../../hooks/hooks";
-import { DeleteModal } from "../../components/modals";
-import { NumberFieldWide, PasswordFieldWide, SwitchGroupWide, TextFieldWide, RadioFieldsetWide } from "../../components/inputs";
-import DownloadClient from "../../screens/settings/DownloadClient";
+
+import { classNames, sleep } from "@utils";
+import DEBUG from "@components/debug";
+import { APIClient } from "@api/APIClient";
+import {DownloadClientTypeOptions, DownloadRuleConditionOptions} from "@domain/constants";
+import Toast from "@components/notifications/Toast";
+import { useToggle } from "@hooks/hooks";
+import { DeleteModal } from "@components/modals";
+import {
+  NumberFieldWide,
+  PasswordFieldWide,
+  RadioFieldsetWide,
+  SwitchGroupWide,
+  TextFieldWide
+} from "@components/inputs";
+import { clientKeys } from "@screens/settings/DownloadClient";
+import { DocsLink, ExternalLink } from "@components/ExternalLink";
+import {SelectFieldBasic} from "@components/inputs/select_wide";
 
 interface InitialValuesSettings {
   basic?: {
@@ -25,6 +37,7 @@ interface InitialValuesSettings {
   rules?: {
     enabled?: boolean;
     ignore_slow_torrents?: boolean;
+    ignore_slow_torrents_condition?: IgnoreTorrentsCondition;
     download_speed_threshold?: number;
     max_active_downloads?: number;
   };
@@ -43,8 +56,7 @@ interface InitialValues {
   settings: InitialValuesSettings;
 }
 
-
-function FormFieldsDefault() {
+function FormFieldsDeluge() {
   const {
     values: { tls }
   } = useFormikContext<InitialValues>();
@@ -52,15 +64,26 @@ function FormFieldsDefault() {
   return (
     <div className="flex flex-col space-y-4 px-1 py-6 sm:py-0 sm:space-y-0">
       <TextFieldWide
+        required
         name="host"
         label="Host"
         help="Eg. client.domain.ltd, domain.ltd/client, domain.ltd:port"
+        tooltip={
+          <div>
+            <p>See guides for how to connect to Deluge for various server types in our docs.</p>
+            <br />
+            <p>Dedicated servers:</p>
+            <DocsLink href="https://autobrr.com/configuration/download-clients/dedicated#deluge" />
+            <p>Shared seedbox providers:</p>
+            <DocsLink href="https://autobrr.com/configuration/download-clients/shared-seedboxes#deluge" />
+          </div>
+        }
       />
 
       <NumberFieldWide
         name="port"
         label="Port"
-        help="WebUI port for qBittorrent and daemon port for Deluge"
+        help="Daemon port"
       />
 
       <SwitchGroupWide name="tls" label="TLS" />
@@ -86,12 +109,23 @@ function FormFieldsArr() {
   return (
     <div className="flex flex-col space-y-4 px-1 mb-4 sm:py-0 sm:space-y-0">
       <TextFieldWide
+        required
         name="host"
         label="Host"
         help="Full url http(s)://domain.ltd and/or subdomain/subfolder"
+        tooltip={
+          <div>
+            <p>See guides for how to connect to the *arr suite for various server types in our docs.</p>
+            <br />
+            <p>Dedicated servers:</p>
+            <DocsLink href="https://autobrr.com/configuration/download-clients/dedicated/#sonarr" />
+            <p>Shared seedbox providers:</p>
+            <DocsLink href="https://autobrr.com/configuration/download-clients/shared-seedboxes#sonarr" />
+          </div>
+        }
       />
 
-      <PasswordFieldWide name="settings.apikey" label="API key" />
+      <PasswordFieldWide required name="settings.apikey" label="API key" />
 
       <SwitchGroupWide name="settings.basic.auth" label="Basic auth" />
 
@@ -101,6 +135,8 @@ function FormFieldsArr() {
           <PasswordFieldWide name="settings.basic.password" label="Password" />
         </>
       )}
+
+      <NumberFieldWide name="settings.external_download_client_id" label="Download Client ID" tooltip={<div><p>Specify what client the arr should use by default. Can be overridden per filter action. You can find the id in the arr by looking at the network responses for download clients.</p></div>} />
     </div>
   );
 }
@@ -113,9 +149,20 @@ function FormFieldsQbit() {
   return (
     <div className="flex flex-col space-y-4 px-1 py-6 sm:py-0 sm:space-y-0">
       <TextFieldWide
+        required
         name="host"
         label="Host"
-        help="Eg. client.domain.ltd, domain.ltd/client, domain.ltd:port"
+        help="Eg. http(s)://client.domain.ltd, http(s)://domain.ltd/qbittorrent, http://domain.ltd:port"
+        tooltip={
+          <div>
+            <p>See guides for how to connect to qBittorrent for various server types in our docs.</p>
+            <br />
+            <p>Dedicated servers:</p>
+            <DocsLink href="https://autobrr.com/configuration/download-clients/dedicated#qbittorrent" />
+            <p>Shared seedbox providers:</p>
+            <DocsLink href="https://autobrr.com/configuration/download-clients/shared-seedboxes#qbittorrent" />
+          </div>
+        }
       />
 
       {port > 0 && (
@@ -150,6 +197,88 @@ function FormFieldsQbit() {
   );
 }
 
+function FormFieldsPorla() {
+  const {
+    values: { tls, settings }
+  } = useFormikContext<InitialValues>();
+
+  return (
+    <div className="flex flex-col space-y-4 px-1 py-6 sm:py-0 sm:space-y-0">
+      <TextFieldWide
+        required
+        name="host"
+        label="Host"
+        help="Eg. http(s)://client.domain.ltd, http(s)://domain.ltd/porla, http://domain.ltd:port"
+      />
+
+      <SwitchGroupWide name="tls" label="TLS" />
+
+      <PasswordFieldWide required name="settings.apikey" label="Auth token" />
+
+      {tls && (
+        <SwitchGroupWide
+          name="tls_skip_verify"
+          label="Skip TLS verification (insecure)"
+        />
+      )}
+
+      <SwitchGroupWide name="settings.basic.auth" label="Basic auth" />
+
+      {settings.basic?.auth === true && (
+        <>
+          <TextFieldWide name="settings.basic.username" label="Username" />
+          <PasswordFieldWide name="settings.basic.password" label="Password" />
+        </>
+      )}
+    </div>
+  );
+}
+
+function FormFieldsRTorrent() {
+  const {
+    values: { tls, settings }
+  } = useFormikContext<InitialValues>();
+
+  return (
+    <div className="flex flex-col space-y-4 px-1 py-6 sm:py-0 sm:space-y-0">
+      <TextFieldWide
+        required
+        name="host"
+        label="Host"
+        help="Eg. http(s)://client.domain.ltd/RPC2, http(s)://domain.ltd/client, http(s)://domain.ltd/RPC2"
+        tooltip={
+          <div>
+            <p>See guides for how to connect to rTorrent for various server types in our docs.</p>
+            <br />
+            <p>Dedicated servers:</p>
+            <DocsLink href="https://autobrr.com/configuration/download-clients/dedicated#rtorrent--rutorrent" />
+            <p>Shared seedbox providers:</p>
+            <DocsLink href="https://autobrr.com/configuration/download-clients/shared-seedboxes#rtorrent" />
+          </div>
+        }
+      />
+
+      <SwitchGroupWide name="tls" label="TLS" />
+
+      {tls && (
+        <SwitchGroupWide
+          name="tls_skip_verify"
+          label="Skip TLS verification (insecure)"
+        />
+      )}
+
+      <SwitchGroupWide name="settings.basic.auth" label="Basic auth" />
+
+      {settings.basic?.auth === true && (
+        <>
+          <TextFieldWide name="settings.basic.username" label="Username" />
+          <PasswordFieldWide name="settings.basic.password" label="Password" />
+        </>
+      )}
+    </div>
+  );
+}
+
 function FormFieldsTransmission() {
   const {
     values: { tls }
@@ -158,9 +287,20 @@ function FormFieldsTransmission() {
   return (
     <div className="flex flex-col space-y-4 px-1 py-6 sm:py-0 sm:space-y-0">
       <TextFieldWide
+        required
         name="host"
         label="Host"
         help="Eg. client.domain.ltd, domain.ltd/client, domain.ltd"
+        tooltip={
+          <div>
+            <p>See guides for how to connect to Transmission for various server types in our docs.</p>
+            <br />
+            <p>Dedicated servers:</p>
+            <DocsLink href="https://autobrr.com/configuration/download-clients/dedicated#transmission" />
+            <p>Shared seedbox providers:</p>
+            <DocsLink href="https://autobrr.com/configuration/download-clients/shared-seedboxes#transmisison" />
+          </div>
+        }
       />
 
       <NumberFieldWide name="port" label="Port" help="Port for Transmission" />
@@ -180,19 +320,80 @@ function FormFieldsTransmission() {
   );
 }
 
+function FormFieldsSabnzbd() {
+  const {
+    values: { port, tls, settings }
+  } = useFormikContext<InitialValues>();
+
+  return (
+    <div className="flex flex-col space-y-4 px-1 py-6 sm:py-0 sm:space-y-0">
+      <TextFieldWide
+        name="host"
+        label="Host"
+        help="Eg. http://ip:port or https://url.com/sabnzbd"
+        tooltip={
+          <div>
+            <p>See our guides on how to connect to qBittorrent for various server types in our docs.</p>
+            <br />
+            <p>Dedicated servers:</p>
+            <ExternalLink href="https://autobrr.com/configuration/download-clients/dedicated#qbittorrent" />
+            <p>Shared seedbox providers:</p>
+            <ExternalLink href="https://autobrr.com/configuration/download-clients/shared-seedboxes#qbittorrent" />
+          </div>
+        }
+      />
+
+      {port > 0 && (
+        <NumberFieldWide
+          name="port"
+          label="Port"
+          help="port for SABnzbd"
+        />
+      )}
+
+      <SwitchGroupWide name="tls" label="TLS" />
+
+      {tls && (
+        <SwitchGroupWide
+          name="tls_skip_verify"
+          label="Skip TLS verification (insecure)"
+        />
+      )}
+
+      {/*<TextFieldWide name="username" label="Username" />*/}
+      {/*<PasswordFieldWide name="password" label="Password" />*/}
+
+      <PasswordFieldWide name="settings.apikey" label="API key" />
+
+      <SwitchGroupWide name="settings.basic.auth" label="Basic auth" />
+
+      {settings.basic?.auth === true && (
+        <>
+          <TextFieldWide name="settings.basic.username" label="Username" />
+          <PasswordFieldWide name="settings.basic.password" label="Password" />
+        </>
+      )}
+    </div>
+  );
+}
+
 export interface componentMapType {
-  [key: string]: React.ReactElement;
+  [key: string]: ReactElement;
 }
 
 export const componentMap: componentMapType = {
-  DELUGE_V1: <FormFieldsDefault/>,
-  DELUGE_V2: <FormFieldsDefault/>,
-  QBITTORRENT: <FormFieldsQbit/>,
-  TRANSMISSION: <FormFieldsTransmission/>,
-  RADARR: <FormFieldsArr/>,
-  SONARR: <FormFieldsArr/>,
-  LIDARR: <FormFieldsArr/>,
-  WHISPARR: <FormFieldsArr/>
+  DELUGE_V1: <FormFieldsDeluge />,
+  DELUGE_V2: <FormFieldsDeluge />,
+  QBITTORRENT: <FormFieldsQbit />,
+  RTORRENT: <FormFieldsRTorrent />,
+  TRANSMISSION: <FormFieldsTransmission />,
+  PORLA: <FormFieldsPorla />,
+  RADARR: <FormFieldsArr />,
+  SONARR: <FormFieldsArr />,
+  LIDARR: <FormFieldsArr />,
+  WHISPARR: <FormFieldsArr />,
+  READARR: <FormFieldsArr />,
+  SABNZBD: <FormFieldsSabnzbd />
 };
 
 function FormFieldsRulesBasic() {
@@ -210,16 +411,28 @@ function FormFieldsRulesBasic() {
         </p>
       </div>
 
-      <SwitchGroupWide name="settings.rules.enabled" label="Enabled"/>
+      <SwitchGroupWide name="settings.rules.enabled" label="Enabled" />
 
       {settings && settings.rules?.enabled === true && (
-        <NumberFieldWide name="settings.rules.max_active_downloads" label="Max active downloads"/>
+        <NumberFieldWide
+          name="settings.rules.max_active_downloads"
+          label="Max active downloads"
+          tooltip={
+            <span>
+              <p>Limit the amount of active downloads (0 is unlimited), to give the maximum amount of bandwidth and disk for the downloads.</p>
+              <DocsLink href="https://autobrr.com/configuration/download-clients/dedicated#deluge-rules" />
+              <br /><br />
+              <p>See recommendations for various server types here:</p>
+              <DocsLink href='https://autobrr.com/filters/examples#build-buffer' />
+            </span>
+          }
+        />
       )}
     </div>
   );
 }
 
-function FormFieldsRules() {
+function FormFieldsRulesQbit() {
   const {
     values: { settings }
   } = useFormikContext<InitialValues>();
@@ -242,19 +455,44 @@ function FormFieldsRules() {
           <NumberFieldWide
             name="settings.rules.max_active_downloads"
             label="Max active downloads"
+            tooltip={
+              <>
+                <p>Limit the amount of active downloads (0 is unlimited), to give the maximum amount of bandwidth and disk for the downloads.</p>
+                <DocsLink href="https://autobrr.com/configuration/download-clients/dedicated#qbittorrent-rules" />
+                <br /><br />
+                <p>See recommendations for various server types here:</p>
+                <DocsLink href="https://autobrr.com/filters/examples#build-buffer" />
+              </>
+            }
           />
+
           <SwitchGroupWide
             name="settings.rules.ignore_slow_torrents"
             label="Ignore slow torrents"
           />
 
           {settings.rules?.ignore_slow_torrents === true && (
-            <NumberFieldWide
-              name="settings.rules.download_speed_threshold"
-              label="Download speed threshold"
-              placeholder="in KB/s"
-              help="If download speed is below this when max active downloads is hit, download anyways. KB/s"
-            />
+            <>
+              <SelectFieldBasic
+                  name="settings.rules.ignore_slow_torrents_condition"
+                  label="Ignore condition"
+                  placeholder="Select ignore condition"
+                  options={DownloadRuleConditionOptions}
+                  tooltip={<p>Choose whether to respect or ignore the <code className="text-blue-400">Max active downloads</code> setting before checking speed thresholds.</p>}
+              />
+              <NumberFieldWide
+                name="settings.rules.download_speed_threshold"
+                label="Download speed threshold"
+                placeholder="in KB/s"
+                help="If download speed is below this when max active downloads is hit, download anyways. KB/s"
+              />
+              <NumberFieldWide
+                name="settings.rules.upload_speed_threshold"
+                label="Upload speed threshold"
+                placeholder="in KB/s"
+                help="If upload speed is below this when max active downloads is hit, download anyways. KB/s"
+              />
+            </>
           )}
         </>
       )}
@@ -262,10 +500,51 @@ function FormFieldsRules() {
   );
 }
 
+function FormFieldsRulesTransmission() {
+  const {
+    values: { settings }
+  } = useFormikContext<InitialValues>();
+
+  return (
+    <div className="border-t border-gray-200 dark:border-gray-700 py-5 px-2">
+      <div className="px-4 space-y-1">
+        <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">
+          Rules
+        </Dialog.Title>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Manage max downloads etc.
+        </p>
+      </div>
+
+      <SwitchGroupWide name="settings.rules.enabled" label="Enabled" />
+
+      {settings.rules?.enabled === true && (
+        <>
+          <NumberFieldWide
+            name="settings.rules.max_active_downloads"
+            label="Max active downloads"
+            tooltip={
+              <>
+                <p>Limit the amount of active downloads (0 is unlimited), to give the maximum amount of bandwidth and disk for the downloads.</p>
+                <DocsLink href="https://autobrr.com/configuration/download-clients/dedicated#transmission-rules" />
+                <br /><br />
+                <p>See recommendations for various server types here:</p>
+                <DocsLink href="https://autobrr.com/filters/examples#build-buffer" />
+              </>
+            }
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
 export const rulesComponentMap: componentMapType = {
-  DELUGE_V1: <FormFieldsRulesBasic/>,
-  DELUGE_V2: <FormFieldsRulesBasic/>,
-  QBITTORRENT: <FormFieldsRules/>
+  DELUGE_V1: <FormFieldsRulesBasic />,
+  DELUGE_V2: <FormFieldsRulesBasic />,
+  QBITTORRENT: <FormFieldsRulesQbit />,
+  PORLA: <FormFieldsRulesBasic />,
+  TRANSMISSION: <FormFieldsRulesTransmission />
 };
 
 interface formButtonsProps {
@@ -316,7 +595,7 @@ function DownloadClientFormButtons({
                   ? "text-red-500 border-red-500 bg-red-50"
                   : "border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-400 bg-white dark:bg-gray-700 hover:bg-gray-50 focus:border-rose-700 active:bg-rose-700",
               isTesting ? "cursor-not-allowed" : "",
-              "mr-2 inline-flex items-center px-4 py-2 border font-medium rounded-md shadow-sm text-sm transition ease-in-out duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-blue-500"
+              "mr-2 inline-flex items-center px-4 py-2 border font-medium rounded-md shadow-sm text-sm transition ease-in-out duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-blue-500"
             )}
             disabled={isTesting}
             // onClick={() => testClient(values)}
@@ -354,14 +633,14 @@ function DownloadClientFormButtons({
 
           <button
             type="button"
-            className="mr-4 bg-white dark:bg-gray-700 py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-blue-500"
+            className="mr-4 bg-white dark:bg-gray-700 py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-blue-500"
             onClick={cancelFn}
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 dark:bg-blue-600 hover:bg-indigo-700 dark:hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-blue-500"
+            className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 dark:bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-blue-500"
           >
             {type === "CREATE" ? "Create" : "Save"}
           </button>
@@ -381,59 +660,53 @@ export function DownloadClientAddForm({ isOpen, toggle }: formProps) {
   const [isSuccessfulTest, setIsSuccessfulTest] = useState(false);
   const [isErrorTest, setIsErrorTest] = useState(false);
 
-  const mutation = useMutation(
-    (client: DownloadClient) => APIClient.download_clients.create(client),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(["downloadClients"]);
-        toast.custom((t) => <Toast type="success" body="Client was added" t={t}/>);
+  const queryClient = useQueryClient();
 
-        toggle();
-      },
-      onError: () => {
-        toast.custom((t) => <Toast type="error" body="Client could not be added" t={t}/>);
-      }
+  const addMutation = useMutation({
+    mutationFn: (client: DownloadClient) => APIClient.download_clients.create(client),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
+      toast.custom((t) => <Toast type="success" body="Client was added" t={t} />);
+
+      toggle();
+    },
+    onError: () => {
+      toast.custom((t) => <Toast type="error" body="Client could not be added" t={t} />);
     }
-  );
+  });
 
-  const testClientMutation = useMutation(
-    (client: DownloadClient) => APIClient.download_clients.test(client),
-    {
-      onMutate: () => {
-        setIsTesting(true);
-        setIsErrorTest(false);
-        setIsSuccessfulTest(false);
-      },
-      onSuccess: () => {
-        sleep(1000)
-          .then(() => {
-            setIsTesting(false);
-            setIsSuccessfulTest(true);
-          })
-          .then(() => {
-            sleep(2500).then(() => {
-              setIsSuccessfulTest(false);
-            });
+  const onSubmit = (data: unknown) => addMutation.mutate(data as DownloadClient);
+
+  const testClientMutation = useMutation({
+    mutationFn: (client: DownloadClient) => APIClient.download_clients.test(client),
+    onMutate: () => {
+      setIsTesting(true);
+      setIsErrorTest(false);
+      setIsSuccessfulTest(false);
+    },
+    onSuccess: () => {
+      sleep(1000)
+        .then(() => {
+          setIsTesting(false);
+          setIsSuccessfulTest(true);
+        })
+        .then(() => {
+          sleep(2500).then(() => {
+            setIsSuccessfulTest(false);
           });
-      },
-      onError: () => {
-        console.log("not added");
-        setIsTesting(false);
-        setIsErrorTest(true);
-        sleep(2500).then(() => {
-          setIsErrorTest(false);
         });
-      }
+    },
+    onError: () => {
+      console.log("not added");
+      setIsTesting(false);
+      setIsErrorTest(true);
+      sleep(2500).then(() => {
+        setIsErrorTest(false);
+      });
     }
-  );
+  });
 
-  const onSubmit = (data: unknown) => {
-    mutation.mutate(data as DownloadClient);
-  };
-
-  const testClient = (data: unknown) => {
-    testClientMutation.mutate(data as DownloadClient);
-  };
+  const testClient = (data: unknown) => testClientMutation.mutate(data as DownloadClient);
 
   const initialValues: InitialValues = {
     name: "",
@@ -458,7 +731,7 @@ export function DownloadClientAddForm({ isOpen, toggle }: formProps) {
         onClose={toggle}
       >
         <div className="absolute inset-0 overflow-hidden">
-          <Dialog.Overlay className="absolute inset-0"/>
+          <Dialog.Overlay className="absolute inset-0" />
 
           <div className="fixed inset-y-0 right-0 pl-10 max-w-full flex sm:pl-16">
             <Transition.Child
@@ -494,11 +767,11 @@ export function DownloadClientAddForm({ isOpen, toggle }: formProps) {
                             <div className="h-7 flex items-center">
                               <button
                                 type="button"
-                                className="bg-white dark:bg-gray-800 rounded-md text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-blue-500"
+                                className="bg-white dark:bg-gray-800 rounded-md text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-500"
                                 onClick={toggle}
                               >
                                 <span className="sr-only">Close panel</span>
-                                <XIcon
+                                <XMarkIcon
                                   className="h-6 w-6"
                                   aria-hidden="true"
                                 />
@@ -508,8 +781,8 @@ export function DownloadClientAddForm({ isOpen, toggle }: formProps) {
                         </div>
 
                         <div className="flex flex-col space-y-4 px-1 py-6 sm:py-0 sm:space-y-0">
-                          <TextFieldWide name="name" label="Name"/>
-                          <SwitchGroupWide name="enabled" label="Enabled"/>
+                          <TextFieldWide required name="name" label="Name" />
+                          <SwitchGroupWide name="enabled" label="Enabled" />
                           <RadioFieldsetWide
                             name="type"
                             legend="Type"
@@ -531,7 +804,7 @@ export function DownloadClientAddForm({ isOpen, toggle }: formProps) {
                         values={values}
                       />
 
-                      <DEBUG values={values}/>
+                      <DEBUG values={values} />
                     </Form>
                   )}
                 </Formik>
@@ -556,72 +829,67 @@ export function DownloadClientUpdateForm({ client, isOpen, toggle }: updateFormP
   const [isErrorTest, setIsErrorTest] = useState(false);
   const [deleteModalIsOpen, toggleDeleteModal] = useToggle(false);
 
-  const mutation = useMutation(
-    (client: DownloadClient) => APIClient.download_clients.update(client),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries(["downloadClients"]);
-        toast.custom((t) => <Toast type="success" body={`${client.name} was updated successfully`} t={t}/>);
-        toggle();
-      }
-    }
-  );
-
-  const deleteMutation = useMutation(
-    (clientID: number) => APIClient.download_clients.delete(clientID),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries();
-        toast.custom((t) => <Toast type="success" body={`${client.name} was deleted.`} t={t}/>);
-        toggleDeleteModal();
-      }
-    }
-  );
-
-  const testClientMutation = useMutation(
-    (client: DownloadClient) => APIClient.download_clients.test(client),
-    {
-      onMutate: () => {
-        setIsTesting(true);
-        setIsErrorTest(false);
-        setIsSuccessfulTest(false);
-      },
-      onSuccess: () => {
-        sleep(1000)
-          .then(() => {
-            setIsTesting(false);
-            setIsSuccessfulTest(true);
-          })
-          .then(() => {
-            sleep(2500).then(() => {
-              setIsSuccessfulTest(false);
-            });
-          });
-      },
-      onError: () => {
-        setIsTesting(false);
-        setIsErrorTest(true);
-        sleep(2500).then(() => {
-          setIsErrorTest(false);
-        });
-      }
-    }
-  );
-
-  const onSubmit = (data: unknown) => {
-    mutation.mutate(data as DownloadClient);
-  };
-
   const cancelButtonRef = useRef(null);
   const cancelModalButtonRef = useRef(null);
 
-  const deleteAction = () => {
-    deleteMutation.mutate(client.id);
-  };
+  const queryClient = useQueryClient();
 
-  const testClient = (data: unknown) => {
-    testClientMutation.mutate(data as DownloadClient);
-  };
+  const mutation = useMutation({
+    mutationFn: (client: DownloadClient) => APIClient.download_clients.update(client),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: clientKeys.detail(client.id) });
+
+      toast.custom((t) => <Toast type="success" body={`${client.name} was updated successfully`} t={t} />);
+      toggle();
+    }
+  });
+
+  const onSubmit = (data: unknown) => mutation.mutate(data as DownloadClient);
+
+  const deleteMutation = useMutation({
+    mutationFn: (clientID: number) => APIClient.download_clients.delete(clientID),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: clientKeys.detail(client.id) });
+
+      toast.custom((t) => <Toast type="success" body={`${client.name} was deleted.`} t={t} />);
+      toggleDeleteModal();
+    }
+  });
+
+  const deleteAction = () => deleteMutation.mutate(client.id);
+
+
+  const testClientMutation = useMutation({
+    mutationFn: (client: DownloadClient) => APIClient.download_clients.test(client),
+    onMutate: () => {
+      setIsTesting(true);
+      setIsErrorTest(false);
+      setIsSuccessfulTest(false);
+    },
+    onSuccess: () => {
+      sleep(1000)
+        .then(() => {
+          setIsTesting(false);
+          setIsSuccessfulTest(true);
+        })
+        .then(() => {
+          sleep(2500).then(() => {
+            setIsSuccessfulTest(false);
+          });
+        });
+    },
+    onError: () => {
+      setIsTesting(false);
+      setIsErrorTest(true);
+      sleep(2500).then(() => {
+        setIsErrorTest(false);
+      });
+    }
+  });
+
+  const testClient = (data: unknown) => testClientMutation.mutate(data as DownloadClient);
 
   const initialValues = {
     id: client.id,
@@ -649,6 +917,7 @@ export function DownloadClientUpdateForm({ client, isOpen, toggle }: updateFormP
       >
         <DeleteModal
           isOpen={deleteModalIsOpen}
+          isLoading={deleteMutation.isLoading}
           toggle={toggleDeleteModal}
           buttonRef={cancelModalButtonRef}
           deleteAction={deleteAction}
@@ -656,7 +925,7 @@ export function DownloadClientUpdateForm({ client, isOpen, toggle }: updateFormP
           text="Are you sure you want to remove this download client? This action cannot be undone."
         />
         <div className="absolute inset-0 overflow-hidden">
-          <Dialog.Overlay className="absolute inset-0"/>
+          <Dialog.Overlay className="absolute inset-0" />
 
           <div className="fixed inset-y-0 right-0 pl-10 max-w-full flex sm:pl-16">
             <Transition.Child
@@ -693,11 +962,11 @@ export function DownloadClientUpdateForm({ client, isOpen, toggle }: updateFormP
                               <div className="h-7 flex items-center">
                                 <button
                                   type="button"
-                                  className="bg-white rounded-md text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                  className="bg-white rounded-md text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                   onClick={toggle}
                                 >
                                   <span className="sr-only">Close panel</span>
-                                  <XIcon
+                                  <XMarkIcon
                                     className="h-6 w-6"
                                     aria-hidden="true"
                                   />
@@ -707,8 +976,8 @@ export function DownloadClientUpdateForm({ client, isOpen, toggle }: updateFormP
                           </div>
 
                           <div className="py-6 space-y-6 sm:py-0 sm:space-y-0 sm:divide-y dark:divide-gray-700">
-                            <TextFieldWide name="name" label="Name"/>
-                            <SwitchGroupWide name="enabled" label="Enabled"/>
+                            <TextFieldWide required name="name" label="Name" />
+                            <SwitchGroupWide name="enabled" label="Enabled" />
                             <RadioFieldsetWide
                               name="type"
                               legend="Type"
@@ -731,7 +1000,7 @@ export function DownloadClientUpdateForm({ client, isOpen, toggle }: updateFormP
                           values={values}
                         />
 
-                        <DEBUG values={values}/>
+                        <DEBUG values={values} />
                       </Form>
                     );
                   }}

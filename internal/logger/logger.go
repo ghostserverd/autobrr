@@ -1,3 +1,6 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package logger
 
 import (
@@ -24,7 +27,7 @@ type Logger interface {
 	Trace() *zerolog.Event
 	Debug() *zerolog.Event
 	With() zerolog.Context
-	RegisterSSEHook(sse *sse.Server)
+	RegisterSSEWriter(sse *sse.Server)
 	SetLogLevel(level string)
 }
 
@@ -59,8 +62,8 @@ func New(cfg *domain.Config) Logger {
 		l.writers = append(l.writers,
 			&lumberjack.Logger{
 				Filename:   cfg.LogPath,
-				MaxSize:    50, // megabytes
-				MaxBackups: 3,
+				MaxSize:    cfg.LogMaxSize, // megabytes
+				MaxBackups: cfg.LogMaxBackups,
 			},
 		)
 	}
@@ -75,8 +78,10 @@ func New(cfg *domain.Config) Logger {
 	return l
 }
 
-func (l *DefaultLogger) RegisterSSEHook(sse *sse.Server) {
-	l.log = l.log.Hook(&ServerSentEventHook{sse: sse})
+func (l *DefaultLogger) RegisterSSEWriter(sse *sse.Server) {
+	w := NewSSEWriter(sse)
+	l.writers = append(l.writers, w)
+	l.log = zerolog.New(io.MultiWriter(l.writers...)).With().Stack().Logger()
 }
 
 func (l *DefaultLogger) SetLogLevel(level string) {

@@ -1,7 +1,11 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package database
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"sync"
 
@@ -9,6 +13,7 @@ import (
 	"github.com/autobrr/autobrr/internal/logger"
 	"github.com/autobrr/autobrr/pkg/errors"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/rs/zerolog"
 )
 
@@ -135,7 +140,7 @@ func (r *DownloadClientRepo) FindByID(ctx context.Context, id int32) (*domain.Do
 			"settings",
 		).
 		From("client").
-		Where("id = ?", id)
+		Where(sq.Eq{"id": id})
 
 	query, args, err := queryBuilder.ToSql()
 	if err != nil {
@@ -151,6 +156,10 @@ func (r *DownloadClientRepo) FindByID(ctx context.Context, id int32) (*domain.Do
 	var settingsJsonStr string
 
 	if err := row.Scan(&client.ID, &client.Name, &client.Type, &client.Enabled, &client.Host, &client.Port, &client.TLS, &client.TLSSkipVerify, &client.Username, &client.Password, &settingsJsonStr); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.New("no client configured")
+		}
+
 		return nil, errors.Wrap(err, "error scanning row")
 	}
 
@@ -167,9 +176,10 @@ func (r *DownloadClientRepo) Store(ctx context.Context, client domain.DownloadCl
 	var err error
 
 	settings := domain.DownloadClientSettings{
-		APIKey: client.Settings.APIKey,
-		Basic:  client.Settings.Basic,
-		Rules:  client.Settings.Rules,
+		APIKey:                   client.Settings.APIKey,
+		Basic:                    client.Settings.Basic,
+		Rules:                    client.Settings.Rules,
+		ExternalDownloadClientId: client.Settings.ExternalDownloadClientId,
 	}
 
 	settingsJson, err := json.Marshal(&settings)
@@ -205,9 +215,10 @@ func (r *DownloadClientRepo) Update(ctx context.Context, client domain.DownloadC
 	var err error
 
 	settings := domain.DownloadClientSettings{
-		APIKey: client.Settings.APIKey,
-		Basic:  client.Settings.Basic,
-		Rules:  client.Settings.Rules,
+		APIKey:                   client.Settings.APIKey,
+		Basic:                    client.Settings.Basic,
+		Rules:                    client.Settings.Rules,
+		ExternalDownloadClientId: client.Settings.ExternalDownloadClientId,
 	}
 
 	settingsJson, err := json.Marshal(&settings)
@@ -227,7 +238,7 @@ func (r *DownloadClientRepo) Update(ctx context.Context, client domain.DownloadC
 		Set("username", client.Username).
 		Set("password", client.Password).
 		Set("settings", string(settingsJson)).
-		Where("id = ?", client.ID)
+		Where(sq.Eq{"id": client.ID})
 
 	query, args, err := queryBuilder.ToSql()
 	if err != nil {
@@ -248,16 +259,41 @@ func (r *DownloadClientRepo) Update(ctx context.Context, client domain.DownloadC
 }
 
 func (r *DownloadClientRepo) Delete(ctx context.Context, clientID int) error {
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+
+	defer tx.Rollback()
+
+	if err := r.delete(ctx, tx, clientID); err != nil {
+		return errors.Wrap(err, "error deleting download client: %d", clientID)
+	}
+
+	if err := r.deleteClientFromAction(ctx, tx, clientID); err != nil {
+		return errors.Wrap(err, "error deleting download client: %d", clientID)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return errors.Wrap(err, "error deleting download client: %d", clientID)
+	}
+
+	r.log.Info().Msgf("delete download client: %d", clientID)
+
+	return nil
+}
+
+func (r *DownloadClientRepo) delete(ctx context.Context, tx *Tx, clientID int) error {
 	queryBuilder := r.db.squirrel.
 		Delete("client").
-		Where("id = ?", clientID)
+		Where(sq.Eq{"id": clientID})
 
 	query, args, err := queryBuilder.ToSql()
 	if err != nil {
 		return errors.Wrap(err, "error building query")
 	}
 
-	res, err := r.db.handler.ExecContext(ctx, query, args...)
+	res, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return errors.Wrap(err, "error executing query")
 	}
@@ -270,7 +306,34 @@ func (r *DownloadClientRepo) Delete(ctx context.Context, clientID int) error {
 		return errors.New("no rows affected")
 	}
 
-	r.log.Info().Msgf("delete download client: %d", clientID)
+	r.log.Debug().Msgf("delete download client: %d", clientID)
+
+	return nil
+}
+
+func (r *DownloadClientRepo) deleteClientFromAction(ctx context.Context, tx *Tx, clientID int) error {
+	var err error
+
+	queryBuilder := r.db.squirrel.
+		Update("action").
+		Set("enabled", false).
+		Set("client_id", 0).
+		Where(sq.Eq{"client_id": clientID}).
+		Suffix("RETURNING filter_id").RunWith(tx)
+
+	// return values
+	var filterID int
+
+	if err = queryBuilder.QueryRowContext(ctx).Scan(&filterID); err != nil {
+		// this will throw when the client is not connected to any actions
+		// it is not an error in this case
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return errors.Wrap(err, "error executing query")
+	}
+
+	r.log.Debug().Msgf("deleting download client %d from action for filter %d", clientID, filterID)
 
 	return nil
 }

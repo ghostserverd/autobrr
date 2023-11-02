@@ -1,12 +1,17 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package database
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/autobrr/autobrr/internal/domain"
 	"github.com/autobrr/autobrr/internal/logger"
 	"github.com/autobrr/autobrr/pkg/errors"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/rs/zerolog"
 )
 
@@ -48,7 +53,7 @@ func (r *UserRepo) FindByUsername(ctx context.Context, username string) (*domain
 	queryBuilder := r.db.squirrel.
 		Select("id", "username", "password").
 		From("users").
-		Where("username = ?", username)
+		Where(sq.Eq{"username": username})
 
 	query, args, err := queryBuilder.ToSql()
 	if err != nil {
@@ -63,20 +68,24 @@ func (r *UserRepo) FindByUsername(ctx context.Context, username string) (*domain
 	var user domain.User
 
 	if err := row.Scan(&user.ID, &user.Username, &user.Password); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, domain.ErrRecordNotFound
+		}
+
 		return nil, errors.Wrap(err, "error scanning row")
 	}
 
 	return &user, nil
 }
 
-func (r *UserRepo) Store(ctx context.Context, user domain.User) error {
+func (r *UserRepo) Store(ctx context.Context, req domain.CreateUserRequest) error {
 
 	var err error
 
 	queryBuilder := r.db.squirrel.
 		Insert("users").
 		Columns("username", "password").
-		Values(user.Username, user.Password)
+		Values(req.Username, req.Password)
 
 	query, args, err := queryBuilder.ToSql()
 	if err != nil {
@@ -99,7 +108,7 @@ func (r *UserRepo) Update(ctx context.Context, user domain.User) error {
 		Update("users").
 		Set("username", user.Username).
 		Set("password", user.Password).
-		Where("username = ?", user.Username)
+		Where(sq.Eq{"username": user.Username})
 
 	query, args, err := queryBuilder.ToSql()
 	if err != nil {

@@ -1,10 +1,17 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package notification
 
 import (
 	"context"
+	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/autobrr/autobrr/internal/domain"
 	"github.com/autobrr/autobrr/internal/logger"
+	"github.com/autobrr/autobrr/pkg/errors"
 
 	"github.com/rs/zerolog"
 )
@@ -117,8 +124,14 @@ func (s *service) registerSenders() {
 			switch n.Type {
 			case domain.NotificationTypeDiscord:
 				s.senders = append(s.senders, NewDiscordSender(s.log, n))
+			case domain.NotificationTypeNotifiarr:
+				s.senders = append(s.senders, NewNotifiarrSender(s.log, n))
 			case domain.NotificationTypeTelegram:
 				s.senders = append(s.senders, NewTelegramSender(s.log, n))
+			case domain.NotificationTypePushover:
+				s.senders = append(s.senders, NewPushoverSender(s.log, n))
+			case domain.NotificationTypeGotify:
+				s.senders = append(s.senders, NewGotifySender(s.log, n))
 			}
 		}
 	}
@@ -147,15 +160,129 @@ func (s *service) Send(event domain.NotificationEvent, payload domain.Notificati
 func (s *service) Test(ctx context.Context, notification domain.Notification) error {
 	var agent domain.NotificationSender
 
+	// send test events
+	events := []domain.NotificationPayload{
+		{
+			Subject:   "Test Notification",
+			Message:   "autobrr goes brr!!",
+			Event:     domain.NotificationEventTest,
+			Timestamp: time.Now(),
+		},
+		{
+			Subject:        "New release!",
+			Message:        "Best.Show.Ever.S18E21.1080p.AMZN.WEB-DL.DDP2.0.H.264-GROUP",
+			Event:          domain.NotificationEventPushApproved,
+			ReleaseName:    "Best.Show.Ever.S18E21.1080p.AMZN.WEB-DL.DDP2.0.H.264-GROUP",
+			Filter:         "TV",
+			Indexer:        "MockIndexer",
+			Status:         domain.ReleasePushStatusApproved,
+			Action:         "Send to qBittorrent",
+			ActionType:     domain.ActionTypeQbittorrent,
+			ActionClient:   "qBittorrent",
+			Rejections:     nil,
+			Protocol:       domain.ReleaseProtocolTorrent,
+			Implementation: domain.ReleaseImplementationIRC,
+			Timestamp:      time.Now(),
+		},
+		{
+			Subject:        "New release!",
+			Message:        "Best.Show.Ever.S18E21.1080p.AMZN.WEB-DL.DDP2.0.H.264-GROUP",
+			Event:          domain.NotificationEventPushRejected,
+			ReleaseName:    "Best.Show.Ever.S18E21.1080p.AMZN.WEB-DL.DDP2.0.H.264-GROUP",
+			Filter:         "TV",
+			Indexer:        "MockIndexer",
+			Status:         domain.ReleasePushStatusRejected,
+			Action:         "Send to Sonarr",
+			ActionType:     domain.ActionTypeSonarr,
+			ActionClient:   "Sonarr",
+			Rejections:     []string{"Unknown Series"},
+			Protocol:       domain.ReleaseProtocolTorrent,
+			Implementation: domain.ReleaseImplementationIRC,
+			Timestamp:      time.Now(),
+		},
+		{
+			Subject:        "New release!",
+			Message:        "Best.Show.Ever.S18E21.1080p.AMZN.WEB-DL.DDP2.0.H.264-GROUP",
+			Event:          domain.NotificationEventPushError,
+			ReleaseName:    "Best.Show.Ever.S18E21.1080p.AMZN.WEB-DL.DDP2.0.H.264-GROUP",
+			Filter:         "TV",
+			Indexer:        "MockIndexer",
+			Status:         domain.ReleasePushStatusErr,
+			Action:         "Send to Sonarr",
+			ActionType:     domain.ActionTypeSonarr,
+			ActionClient:   "Sonarr",
+			Rejections:     []string{"error pushing to client"},
+			Protocol:       domain.ReleaseProtocolTorrent,
+			Implementation: domain.ReleaseImplementationIRC,
+			Timestamp:      time.Now(),
+		},
+		{
+			Subject:   "IRC Disconnected unexpectedly",
+			Message:   "Network: P2P-Network",
+			Event:     domain.NotificationEventIRCDisconnected,
+			Timestamp: time.Now(),
+		},
+		{
+			Subject:   "IRC Reconnected",
+			Message:   "Network: P2P-Network",
+			Event:     domain.NotificationEventIRCReconnected,
+			Timestamp: time.Now(),
+		},
+		{
+			Subject:   "New update available!",
+			Message:   "v1.6.0",
+			Event:     domain.NotificationEventAppUpdateAvailable,
+			Timestamp: time.Now(),
+		},
+	}
+
 	switch notification.Type {
 	case domain.NotificationTypeDiscord:
 		agent = NewDiscordSender(s.log, notification)
+	case domain.NotificationTypeNotifiarr:
+		agent = NewNotifiarrSender(s.log, notification)
 	case domain.NotificationTypeTelegram:
 		agent = NewTelegramSender(s.log, notification)
+	case domain.NotificationTypePushover:
+		agent = NewPushoverSender(s.log, notification)
+	case domain.NotificationTypeGotify:
+		agent = NewGotifySender(s.log, notification)
+	default:
+		s.log.Error().Msgf("unsupported notification type: %v", notification.Type)
+		return errors.New("unsupported notification type")
 	}
 
-	return agent.Send(domain.NotificationEventTest, domain.NotificationPayload{
-		Subject: "Test Notification",
-		Message: "autobrr goes brr!!",
-	})
+	g, _ := errgroup.WithContext(ctx)
+
+	for _, event := range events {
+		e := event
+
+		if !enabledEvent(notification.Events, e.Event) {
+			continue
+		}
+
+		if err := agent.Send(e.Event, e); err != nil {
+			s.log.Error().Err(err).Msgf("error sending test notification: %#v", notification)
+			return err
+		}
+
+		time.Sleep(1 * time.Second)
+	}
+
+	if err := g.Wait(); err != nil {
+		s.log.Error().Err(err).Msgf("Something went wrong sending test notifications to %v", notification.Type)
+		return err
+	}
+
+	return nil
+}
+
+func enabledEvent(events []string, e domain.NotificationEvent) bool {
+	for _, v := range events {
+		if v == string(e) {
+			return true
+		}
+	}
+
+	return false
 }

@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 interface IrcNetwork {
   id: number;
   name: string;
@@ -5,9 +10,12 @@ interface IrcNetwork {
   server: string;
   port: number;
   tls: boolean;
+  nick: string;
   pass: string;
+  auth: IrcAuth; // optional
   invite_command: string;
-  nickserv?: NickServ; // optional
+  use_bouncer: boolean;
+  bouncer_addr: string;
   channels: IrcChannel[];
   connected: boolean;
   connected_since: string;
@@ -20,8 +28,11 @@ interface IrcNetworkCreate {
   port: number;
   tls: boolean;
   pass: string;
+  nick: string;
+  auth: IrcAuth; // optional
   invite_command: string;
-  nickserv?: NickServ; // optional
+  use_bouncer?: boolean;
+  bouncer_addr?: string;
   channels: IrcChannel[];
   connected: boolean;
 }
@@ -48,26 +59,30 @@ interface IrcNetworkWithHealth {
   port: number;
   tls: boolean;
   pass: string;
+  nick: string;
+  auth: IrcAuth; // optional
   invite_command: string;
-  nickserv?: NickServ; // optional
+  use_bouncer: boolean;
+  bouncer_addr: string;
   channels: IrcChannelWithHealth[];
   connected: boolean;
   connected_since: string;
   connection_errors: string[];
+  healthy: boolean;
 }
 
-interface NickServ {
+type IrcAuthMechanism = "NONE" | "SASL_PLAIN" | "NICKSERV";
+
+interface IrcAuth {
+  mechanism: IrcAuthMechanism; // optional
   account?: string; // optional
   password?: string; // optional
 }
 
-interface Config {
-  host: string;
-  port: number;
-  log_level: string;
-  log_path: string;
-  base_url: string;
-  version: string;
-  commit: string;
-  date: string;
+interface SendIrcCmdRequest {
+  network_id: number;
+  server: string;
+  channel: string;
+  nick: string;
+  msg: string;
 }

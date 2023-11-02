@@ -1,45 +1,62 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package notification
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"html"
-	"io/ioutil"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/autobrr/autobrr/internal/domain"
 	"github.com/autobrr/autobrr/pkg/errors"
 
+	"github.com/dustin/go-humanize"
 	"github.com/rs/zerolog"
 )
 
+// Reference: https://core.telegram.org/bots/api#sendmessage
 type TelegramMessage struct {
-	ChatID    string `json:"chat_id"`
-	Text      string `json:"text"`
-	ParseMode string `json:"parse_mode"`
+	ChatID          string `json:"chat_id"`
+	Text            string `json:"text"`
+	ParseMode       string `json:"parse_mode"`
+	MessageThreadID int    `json:"message_thread_id,omitempty"`
 }
 
 type telegramSender struct {
 	log      zerolog.Logger
 	Settings domain.Notification
+	ThreadID int
 }
 
 func NewTelegramSender(log zerolog.Logger, settings domain.Notification) domain.NotificationSender {
+	threadID := 0
+	if t := settings.Topic; t != "" {
+		var err error
+		threadID, err = strconv.Atoi(t)
+		if err != nil {
+			log.Error().Err(err).Msgf("could not parse specified topic %q as an integer", t)
+		}
+	}
 	return &telegramSender{
 		log:      log.With().Str("sender", "telegram").Logger(),
 		Settings: settings,
+		ThreadID: threadID,
 	}
 }
 
 func (s *telegramSender) Send(event domain.NotificationEvent, payload domain.NotificationPayload) error {
 	m := TelegramMessage{
-		ChatID:    s.Settings.Channel,
-		Text:      s.buildMessage(event, payload),
-		ParseMode: "HTML",
+		ChatID:          s.Settings.Channel,
+		Text:            s.buildMessage(event, payload),
+		MessageThreadID: s.ThreadID,
+		ParseMode:       "HTML",
 		//ParseMode: "MarkdownV2",
 	}
 
@@ -60,20 +77,14 @@ func (s *telegramSender) Send(event domain.NotificationEvent, payload domain.Not
 	req.Header.Set("Content-Type", "application/json")
 	//req.Header.Set("User-Agent", "autobrr")
 
-	t := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
-	}
-
-	client := http.Client{Transport: t, Timeout: 30 * time.Second}
+	client := http.Client{Timeout: 30 * time.Second}
 	res, err := client.Do(req)
 	if err != nil {
 		s.log.Error().Err(err).Msgf("telegram client request error: %v", event)
 		return errors.Wrap(err, "could not make request: %+v", req)
 	}
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		s.log.Error().Err(err).Msgf("telegram client request error: %v", event)
 		return errors.Wrap(err, "could not read data")
@@ -124,6 +135,9 @@ func (s *telegramSender) buildMessage(event domain.NotificationEvent, payload do
 	}
 	if payload.ReleaseName != "" {
 		msg += fmt.Sprintf("\n<b>New release:</b> %v", html.EscapeString(payload.ReleaseName))
+	}
+	if payload.Size > 0 {
+		msg += fmt.Sprintf("\n<b>File Size:</b> %v", html.EscapeString(humanize.Bytes(payload.Size)))
 	}
 	if payload.Status != "" {
 		msg += fmt.Sprintf("\n<b>Status:</b> %v", payload.Status.String())

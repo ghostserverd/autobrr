@@ -1,3 +1,6 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package torznab
 
 import "encoding/xml"
@@ -36,19 +39,14 @@ type Search struct {
 	SupportedParams string `xml:"supportedParams,attr"`
 }
 
-type Categories struct {
-	Category []Category `xml:"category"`
+type CapCategories struct {
+	Categories []Category `xml:"category"`
 }
 
-type Category struct {
-	ID     string        `xml:"id,attr"`
-	Name   string        `xml:"name,attr"`
-	Subcat []SubCategory `xml:"subcat"`
-}
-
-type SubCategory struct {
-	ID   string `xml:"id,attr"`
-	Name string `xml:"name,attr"`
+type CapCategory struct {
+	ID            string        `xml:"id,attr"`
+	Name          string        `xml:"name,attr"`
+	SubCategories []CapCategory `xml:"subcat"`
 }
 
 type Groups struct {
@@ -85,14 +83,14 @@ type CapsResponse struct {
 }
 
 type Caps struct {
-	XMLName      xml.Name     `xml:"caps"`
-	Server       Server       `xml:"server"`
-	Limits       Limits       `xml:"limits"`
-	Retention    Retention    `xml:"retention"`
-	Registration Registration `xml:"registration"`
-	Searching    Searching    `xml:"searching"`
-	Categories   Categories   `xml:"categories"`
-	Groups       Groups       `xml:"groups"`
-	Genres       Genres       `xml:"genres"`
-	Tags         Tags         `xml:"tags"`
+	XMLName      xml.Name      `xml:"caps"`
+	Server       Server        `xml:"server"`
+	Limits       Limits        `xml:"limits"`
+	Retention    Retention     `xml:"retention"`
+	Registration Registration  `xml:"registration"`
+	Searching    Searching     `xml:"searching"`
+	Categories   CapCategories `xml:"categories"`
+	Groups       Groups        `xml:"groups"`
+	Genres       Genres        `xml:"genres"`
+	Tags         Tags          `xml:"tags"`
 }

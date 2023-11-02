@@ -1,12 +1,21 @@
+/*
+ * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 type DownloadClientType =
-    "QBITTORRENT" |
-    "DELUGE_V1" |
-    "DELUGE_V2" |
-    "TRANSMISSION" |
-    "RADARR" |
-    "SONARR" |
-    "LIDARR" |
-    "WHISPARR";
+  "QBITTORRENT" |
+  "DELUGE_V1" |
+  "DELUGE_V2" |
+  "RTORRENT" |
+  "TRANSMISSION" |
+  "PORLA" |
+  "RADARR" |
+  "SONARR" |
+  "LIDARR" |
+  "WHISPARR" |
+  "READARR" |
+  "SABNZBD";
 
 // export enum DownloadClientTypeEnum {
 //     QBITTORRENT = "QBITTORRENT",
@@ -22,8 +31,12 @@ interface DownloadClientRules {
   enabled: boolean;
   max_active_downloads: number;
   ignore_slow_torrents: boolean;
+  ignore_slow_torrents_condition: IgnoreTorrentsCondition;
   download_speed_threshold: number;
+  upload_speed_threshold: number;
 }
+
+type IgnoreTorrentsCondition = "ALWAYS" | "MAX_DOWNLOADS_REACHED";
 
 interface DownloadClientBasicAuth {
   auth: boolean;
@@ -35,6 +48,7 @@ interface DownloadClientSettings {
   apikey?: string;
   basic?: DownloadClientBasicAuth;
   rules?: DownloadClientRules;
+  external_download_client_id?: number;
 }
 
 interface DownloadClient {

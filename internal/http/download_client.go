@@ -1,3 +1,6 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package http
 
 import (
@@ -7,7 +10,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/v5"
 
 	"github.com/autobrr/autobrr/internal/domain"
 )
@@ -17,7 +20,7 @@ type downloadClientService interface {
 	Store(ctx context.Context, client domain.DownloadClient) (*domain.DownloadClient, error)
 	Update(ctx context.Context, client domain.DownloadClient) (*domain.DownloadClient, error)
 	Delete(ctx context.Context, clientID int) error
-	Test(client domain.DownloadClient) error
+	Test(ctx context.Context, client domain.DownloadClient) error
 }
 
 type downloadClientHandler struct {
@@ -49,7 +52,7 @@ func (h downloadClientHandler) listDownloadClients(w http.ResponseWriter, r *htt
 		return
 	}
 
-	h.encoder.StatusResponse(ctx, w, clients, http.StatusOK)
+	h.encoder.StatusResponse(w, http.StatusOK, clients)
 }
 
 func (h downloadClientHandler) store(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +69,7 @@ func (h downloadClientHandler) store(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.encoder.StatusResponse(r.Context(), w, client, http.StatusCreated)
+	h.encoder.StatusResponse(w, http.StatusCreated, client)
 }
 
 func (h downloadClientHandler) test(w http.ResponseWriter, r *http.Request) {
@@ -77,8 +80,7 @@ func (h downloadClientHandler) test(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.service.Test(data)
-	if err != nil {
+	if err := h.service.Test(r.Context(), data); err != nil {
 		h.encoder.Error(w, err)
 		return
 	}
@@ -100,7 +102,7 @@ func (h downloadClientHandler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.encoder.StatusResponse(r.Context(), w, client, http.StatusCreated)
+	h.encoder.StatusResponse(w, http.StatusCreated, client)
 }
 
 func (h downloadClientHandler) delete(w http.ResponseWriter, r *http.Request) {

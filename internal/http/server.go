@@ -1,26 +1,33 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package http
 
 import (
 	"fmt"
-	"io/fs"
 	"net"
 	"net/http"
+	"time"
 
+	"github.com/autobrr/autobrr/internal/config"
 	"github.com/autobrr/autobrr/internal/database"
-	"github.com/autobrr/autobrr/internal/domain"
+	"github.com/autobrr/autobrr/internal/logger"
 	"github.com/autobrr/autobrr/web"
 
-	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/sessions"
 	"github.com/r3labs/sse/v2"
 	"github.com/rs/cors"
+	"github.com/rs/zerolog"
 )
 
 type Server struct {
+	log zerolog.Logger
 	sse *sse.Server
 	db  *database.DB
 
-	config      *domain.Config
+	config      *config.AppConfig
 	cookieStore *sessions.CookieStore
 
 	version string
@@ -28,6 +35,7 @@ type Server struct {
 	date    string
 
 	actionService         actionService
+	apiService            apikeyService
 	authService           authService
 	downloadClientService downloadClientService
 	filterService         filterService
@@ -36,10 +44,12 @@ type Server struct {
 	ircService            ircService
 	notificationService   notificationService
 	releaseService        releaseService
+	updateService         updateService
 }
 
-func NewServer(config *domain.Config, sse *sse.Server, db *database.DB, version string, commit string, date string, actionService actionService, authService authService, downloadClientSvc downloadClientService, filterSvc filterService, feedSvc feedService, indexerSvc indexerService, ircSvc ircService, notificationSvc notificationService, releaseSvc releaseService) Server {
+func NewServer(log logger.Logger, config *config.AppConfig, sse *sse.Server, db *database.DB, version string, commit string, date string, actionService actionService, apiService apikeyService, authService authService, downloadClientSvc downloadClientService, filterSvc filterService, feedSvc feedService, indexerSvc indexerService, ircSvc ircService, notificationSvc notificationService, releaseSvc releaseService, updateSvc updateService) Server {
 	return Server{
+		log:     log.With().Str("module", "http").Logger(),
 		config:  config,
 		sse:     sse,
 		db:      db,
@@ -47,9 +57,10 @@ func NewServer(config *domain.Config, sse *sse.Server, db *database.DB, version 
 		commit:  commit,
 		date:    date,
 
-		cookieStore: sessions.NewCookieStore([]byte(config.SessionSecret)),
+		cookieStore: sessions.NewCookieStore([]byte(config.Config.SessionSecret)),
 
 		actionService:         actionService,
+		apiService:            apiService,
 		authService:           authService,
 		downloadClientService: downloadClientSvc,
 		filterService:         filterSvc,
@@ -58,25 +69,34 @@ func NewServer(config *domain.Config, sse *sse.Server, db *database.DB, version 
 		ircService:            ircSvc,
 		notificationService:   notificationSvc,
 		releaseService:        releaseSvc,
+		updateService:         updateSvc,
 	}
 }
 
 func (s Server) Open() error {
-	addr := fmt.Sprintf("%v:%v", s.config.Host, s.config.Port)
+	addr := fmt.Sprintf("%v:%v", s.config.Config.Host, s.config.Config.Port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
 
 	server := http.Server{
-		Handler: s.Handler(),
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: time.Second * 15,
 	}
+
+	s.log.Info().Msgf("Starting server. Listening on %s", listener.Addr().String())
 
 	return server.Serve(listener)
 }
 
 func (s Server) Handler() http.Handler {
 	r := chi.NewRouter()
+
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Recoverer)
+	r.Use(LoggerMiddleware(&s.log))
 
 	c := cors.New(cors.Options{
 		AllowCredentials:   true,
@@ -89,35 +109,27 @@ func (s Server) Handler() http.Handler {
 
 	r.Use(c.Handler)
 
-	//r.Get("/", index)
-	//r.Get("/dashboard", dashboard)
-
-	//handler := web.AssetHandler("/", "build")
-
 	encoder := encoder{}
 
-	assets, _ := fs.Sub(web.Assets, "build/static")
-	r.HandleFunc("/static/*", func(w http.ResponseWriter, r *http.Request) {
-		fileSystem := http.StripPrefix("/static/", http.FileServer(http.FS(assets)))
-		fileSystem.ServeHTTP(w, r)
-	})
+	r.Route("/api", func(r chi.Router) {
+		r.Route("/auth", newAuthHandler(encoder, s.log, s.config.Config, s.cookieStore, s.authService).Routes)
+		r.Route("/healthz", newHealthHandler(encoder, s.db).Routes)
 
-	r.Route("/api/auth", newAuthHandler(encoder, s.config, s.cookieStore, s.authService).Routes)
-	r.Route("/api/healthz", newHealthHandler(encoder, s.db).Routes)
+		r.Group(func(r chi.Router) {
+			r.Use(s.IsAuthenticated)
 
-	r.Group(func(r chi.Router) {
-		r.Use(s.IsAuthenticated)
-
-		r.Route("/api", func(r chi.Router) {
 			r.Route("/actions", newActionHandler(encoder, s.actionService).Routes)
-			r.Route("/config", newConfigHandler(encoder, s).Routes)
+			r.Route("/config", newConfigHandler(encoder, s, s.config).Routes)
 			r.Route("/download_clients", newDownloadClientHandler(encoder, s.downloadClientService).Routes)
 			r.Route("/filters", newFilterHandler(encoder, s.filterService).Routes)
 			r.Route("/feeds", newFeedHandler(encoder, s.feedService).Routes)
-			r.Route("/irc", newIrcHandler(encoder, s.ircService).Routes)
+			r.Route("/irc", newIrcHandler(encoder, s.sse, s.ircService).Routes)
 			r.Route("/indexer", newIndexerHandler(encoder, s.indexerService, s.ircService).Routes)
+			r.Route("/keys", newAPIKeyHandler(encoder, s.apiService).Routes)
+			r.Route("/logs", newLogsHandler(s.config).Routes)
 			r.Route("/notification", newNotificationHandler(encoder, s.notificationService).Routes)
 			r.Route("/release", newReleaseHandler(encoder, s.releaseService).Routes)
+			r.Route("/updates", newUpdateHandler(encoder, s.updateService).Routes)
 
 			r.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
 
@@ -134,9 +146,8 @@ func (s Server) Handler() http.Handler {
 		})
 	})
 
-	//r.HandleFunc("/*", handler.ServeHTTP)
-	r.Get("/", s.index)
-	r.Get("/*", s.index)
+	// serve the web
+	web.RegisterHandler(r, s.version, s.config.Config.BaseURL)
 
 	return r
 }
@@ -145,7 +156,7 @@ func (s Server) index(w http.ResponseWriter, r *http.Request) {
 	p := web.IndexParams{
 		Title:   "Dashboard",
 		Version: s.version,
-		BaseUrl: s.config.BaseURL,
+		BaseUrl: s.config.Config.BaseURL,
 	}
 	web.Index(w, p)
 }

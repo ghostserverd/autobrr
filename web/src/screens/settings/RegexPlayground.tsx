@@ -1,13 +1,18 @@
+/*
+ * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 import { useRef, useState } from "react";
 
-export const RegexPlayground = () => {
+const RegexPlayground = () => {
   const regexRef = useRef<HTMLInputElement>(null);
   const [output, setOutput] = useState<Array<React.ReactElement>>();
 
   const onInput = (text: string) => {
     if (!regexRef || !regexRef.current)
       return;
-        
+
     const regexp = new RegExp(regexRef.current.value, "g");
 
     const results: Array<React.ReactElement> = [];
@@ -45,7 +50,7 @@ export const RegexPlayground = () => {
           </span>
         );
       }
-            
+
       if (lastIndex > 0)
         results.push(<br key={`line-delim-${index}`}/>);
     });
@@ -103,3 +108,5 @@ export const RegexPlayground = () => {
     </div>
   );
 };
+
+export default RegexPlayground;

@@ -1,6 +1,10 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package whisparr
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log"
@@ -24,8 +28,8 @@ type Config struct {
 }
 
 type Client interface {
-	Test() (*SystemStatusResponse, error)
-	Push(release Release) ([]string, error)
+	Test(ctx context.Context) (*SystemStatusResponse, error)
+	Push(ctx context.Context, release Release) ([]string, error)
 }
 
 type client struct {
@@ -38,7 +42,7 @@ type client struct {
 func New(config Config) Client {
 
 	httpClient := &http.Client{
-		Timeout: time.Second * 30,
+		Timeout: time.Second * 120,
 	}
 
 	c := &client{
@@ -56,12 +60,15 @@ func New(config Config) Client {
 
 type Release struct {
 	Title            string `json:"title"`
-	DownloadUrl      string `json:"downloadUrl"`
+	InfoUrl          string `json:"infoUrl,omitempty"`
+	DownloadUrl      string `json:"downloadUrl,omitempty"`
+	MagnetUrl        string `json:"magnetUrl,omitempty"`
 	Size             int64  `json:"size"`
 	Indexer          string `json:"indexer"`
 	DownloadProtocol string `json:"downloadProtocol"`
 	Protocol         string `json:"protocol"`
 	PublishDate      string `json:"publishDate"`
+	DownloadClientId int    `json:"downloadClientId,omitempty"`
 }
 
 type PushResponse struct {
@@ -75,8 +82,8 @@ type SystemStatusResponse struct {
 	Version string `json:"version"`
 }
 
-func (c *client) Test() (*SystemStatusResponse, error) {
-	res, err := c.get("system/status")
+func (c *client) Test(ctx context.Context) (*SystemStatusResponse, error) {
+	res, err := c.get(ctx, "system/status")
 	if err != nil {
 		return nil, errors.Wrap(err, "could not test whisparr")
 	}
@@ -99,8 +106,8 @@ func (c *client) Test() (*SystemStatusResponse, error) {
 	return &response, nil
 }
 
-func (c *client) Push(release Release) ([]string, error) {
-	res, err := c.post("release/push", release)
+func (c *client) Push(ctx context.Context, release Release) ([]string, error) {
+	res, err := c.post(ctx, "release/push", release)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not push release to whisparr: %+v", release)
 	}

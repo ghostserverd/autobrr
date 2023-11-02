@@ -1,3 +1,6 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package database
 
 import (
@@ -24,14 +27,33 @@ func (db *DB) openSQLite() error {
 	}
 
 	// Set busy timeout
-	//if _, err = db.handler.Exec(`PRAGMA busy_timeout = 5000;`); err != nil {
-	//	return errors.New("busy timeout pragma: %w", err)
-	//}
+	if _, err = db.handler.Exec(`PRAGMA busy_timeout = 5000;`); err != nil {
+		return errors.Wrap(err, "busy timeout pragma")
+	}
 
 	// Enable WAL. SQLite performs better with the WAL  because it allows
 	// multiple readers to operate while data is being written.
 	if _, err = db.handler.Exec(`PRAGMA journal_mode = wal;`); err != nil {
 		return errors.Wrap(err, "enable wal")
+	}
+
+	// SQLite has a query planner that uses lifecycle stats to fund optimizations.
+	// This restricts the SQLite query planner optimizer to only run if sufficient 
+	// information has been gathered over the lifecycle of the connection.
+	// The SQLite documentation is inconsistent in this regard,
+	// suggestions of 400 and 1000 are both "recommended", so lets use the lower bound.
+	if _, err = db.handler.Exec(`PRAGMA analysis_limit = 400;`); err != nil {
+		return errors.Wrap(err, "analysis_limit")
+	}
+
+	// When Autobrr does not cleanly shutdown, the WAL will still be present and not committed.
+	// This is a no-op if the WAL is empty, and a commit when the WAL is not to start fresh.
+	// When commits hit 1000, PRAGMA wal_checkpoint(PASSIVE); is invoked which tries its best
+	// to commit from the WAL (and can fail to commit all pending operations).
+	// Forcing a PRAGMA wal_checkpoint(RESTART); in the future on a "quiet period" could be
+	// considered.
+	if _, err = db.handler.Exec(`PRAGMA wal_checkpoint(TRUNCATE);`); err != nil {
+		return errors.Wrap(err, "commit wal")
 	}
 
 	// Enable foreign key checks. For historical reasons, SQLite does not check
@@ -45,6 +67,21 @@ func (db *DB) openSQLite() error {
 	if err = db.migrateSQLite(); err != nil {
 		db.log.Fatal().Err(err).Msg("could not migrate db")
 		return err
+	}
+
+	return nil
+}
+
+func (db *DB) closingSQLite() error {
+	if db.handler == nil {
+		return nil
+	}
+
+	// SQLite has a query planner that uses lifecycle stats to fund optimizations.
+	// Based on the limit defined at connection time, run optimize to
+	// help tweak the performance of the database on the next run.
+	if _, err := db.handler.Exec(`PRAGMA optimize;`); err != nil {
+		return errors.Wrap(err, "query planner optimization")
 	}
 
 	return nil
@@ -65,6 +102,8 @@ func (db *DB) migrateSQLite() error {
 		return errors.New("autobrr (version %d) older than schema (version: %d)", len(sqliteMigrations), version)
 	}
 
+	db.log.Info().Msgf("Beginning database schema upgrade from version %v to version: %v", version, len(sqliteMigrations))
+
 	tx, err := db.handler.Begin()
 	if err != nil {
 		return err
@@ -77,6 +116,7 @@ func (db *DB) migrateSQLite() error {
 		}
 	} else {
 		for i := version; i < len(sqliteMigrations); i++ {
+			db.log.Info().Msgf("Upgrading Database schema to version: %v", i)
 			if _, err := tx.Exec(sqliteMigrations[i]); err != nil {
 				return errors.Wrap(err, "failed to execute migration #%v", i)
 			}
@@ -97,6 +137,8 @@ func (db *DB) migrateSQLite() error {
 	if err != nil {
 		return errors.Wrap(err, "failed to bump schema version")
 	}
+
+	db.log.Info().Msgf("Database schema upgraded to version: %v", len(sqliteMigrations))
 
 	return tx.Commit()
 }

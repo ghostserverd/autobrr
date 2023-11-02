@@ -1,3 +1,6 @@
+// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+
 package domain
 
 import (
@@ -37,8 +40,9 @@ func TestParseReleaseTagString(t *testing.T) {
 		{name: "music_1", args: args{tags: "FLAC / Lossless / Log / 80% / Cue / CD"}, want: ReleaseTags{Audio: []string{"Cue", "FLAC", "Lossless", "Log"}, Source: "CD"}},
 		{name: "music_2", args: args{tags: "FLAC Lossless Log 80% Cue CD"}, want: ReleaseTags{Audio: []string{"Cue", "FLAC", "Lossless", "Log"}, Source: "CD"}},
 		{name: "music_3", args: args{tags: "FLAC Lossless Log 100% Cue CD"}, want: ReleaseTags{Audio: []string{"Cue", "FLAC", "Lossless", "Log100", "Log"}, Source: "CD"}},
-		{name: "music_4", args: args{tags: "FLAC 24bit Lossless Log 100% Cue CD"}, want: ReleaseTags{Audio: []string{"24BIT Lossless", "Cue", "FLAC", "Lossless", "Log100", "Log"}, Source: "CD"}},
+		{name: "music_4", args: args{tags: "FLAC 24bit Lossless Log 100% Cue CD"}, want: ReleaseTags{Audio: []string{"24BIT Lossless", "Cue", "FLAC", "Log100", "Log"}, Source: "CD"}},
 		{name: "music_5", args: args{tags: "MP3 320 WEB"}, want: ReleaseTags{Audio: []string{"320", "MP3"}, Source: "WEB"}},
+		{name: "music_6", args: args{tags: "FLAC Lossless Log (100%) Cue CD"}, want: ReleaseTags{Audio: []string{"Cue", "FLAC", "Lossless", "Log100", "Log"}, Source: "CD"}},
 		{name: "movies_1", args: args{tags: "x264 Blu-ray MKV 1080p"}, want: ReleaseTags{Codec: "x264", Source: "BluRay", Resolution: "1080p", Container: "mkv"}},
 		{name: "movies_2", args: args{tags: "HEVC HDR Blu-ray mp4 2160p"}, want: ReleaseTags{Codec: "HEVC", Source: "BluRay", Resolution: "2160p", Container: "mp4", HDR: []string{"HDR"}}},
 		{name: "movies_3", args: args{tags: "HEVC HDR DV Blu-ray mp4 2160p"}, want: ReleaseTags{Codec: "HEVC", Source: "BluRay", Resolution: "2160p", Container: "mp4", HDR: []string{"HDR", "DV"}}},
@@ -49,6 +53,9 @@ func TestParseReleaseTagString(t *testing.T) {
 		{name: "movies_8", args: args{tags: "H.264, DVD, Freeleech!"}, want: ReleaseTags{Codec: "H.264", Source: "DVD", Bonus: []string{"Freeleech"}}},
 		{name: "anime_1", args: args{tags: "Web / MKV / h264 / 1080p / AAC 2.0 / Softsubs (SubsPlease) / Episode 22 / Freeleech"}, want: ReleaseTags{Audio: []string{"AAC"}, Channels: "2.0", Source: "WEB", Resolution: "1080p", Container: "mkv", Codec: "H.264", Bonus: []string{"Freeleech"}}},
 		{name: "anime_2", args: args{tags: "Web | ISO | h264 | 1080p | AAC 2.0 | Softsubs (SubsPlease) | Episode 22 | Freeleech"}, want: ReleaseTags{Audio: []string{"AAC"}, Channels: "2.0", Source: "WEB", Resolution: "1080p", Container: "iso", Codec: "H.264", Bonus: []string{"Freeleech"}}},
+		{name: "tv_1", args: args{tags: "MKV | H.264 | WEB-DL | 1080p | Internal | FastTorrent"}, want: ReleaseTags{Source: "WEB-DL", Codec: "H.264", Resolution: "1080p", Container: "mkv", Origin: "Internal"}},
+		{name: "tv_2", args: args{tags: "MKV | H.264 | WEB-DL | 1080p | Scene | FastTorrent"}, want: ReleaseTags{Source: "WEB-DL", Codec: "H.264", Resolution: "1080p", Container: "mkv", Origin: "Scene"}},
+		{name: "tv_3", args: args{tags: "MKV | H.264 | WEB-DL | 1080p | P2P | FastTorrent"}, want: ReleaseTags{Source: "WEB-DL", Codec: "H.264", Resolution: "1080p", Container: "mkv", Origin: "P2P"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
