@@ -66,8 +66,7 @@ func (a *announceProcessor) setupQueueConsumers() {
 func (a *announceProcessor) processQueue(queue chan string) {
 	for {
 		tmpVars := map[string]string{}
-		parseFailed := false
-		//patternParsed := false
+		patternParsed := false
 
 		for _, parseLine := range a.indexer.IRC.Parse.Lines {
 			line, err := a.getNextLine(queue)
@@ -88,18 +87,20 @@ func (a *announceProcessor) processQueue(queue chan string) {
 			if err != nil {
 				a.log.Error().Err(err).Msgf("error parsing extract for line: %v", line)
 
-				parseFailed = true
-				break
+				continue
 			}
 
 			if !match {
 				a.log.Debug().Msgf("line not matching expected regex pattern: %v", line)
-				parseFailed = true
-				break
+				continue
 			}
+
+			patternParsed = true
+			break
 		}
 
-		if parseFailed {
+		if !patternParsed {
+			a.log.Trace().Msg("announce: parse failed")
 			continue
 		}
 
