@@ -6,6 +6,7 @@ package irc
 import (
 	"crypto/tls"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/r3labs/sse/v2"
 	"github.com/rs/zerolog"
 	"github.com/sasha-s/go-deadlock"
+	"golang.org/x/net/proxy"
 )
 
 var (
@@ -220,6 +222,37 @@ func (h *Handler) Run() (err error) {
 		Log:           subLogger,
 	}
 
+	if h.network.UseProxy && h.network.Proxy != nil {
+		if !h.network.Proxy.Enabled {
+			h.log.Debug().Msgf("proxy disabled, skip")
+		} else {
+			if h.network.Proxy.Addr == "" {
+				return errors.New("proxy addr missing")
+			}
+
+			proxyUrl, err := url.Parse(h.network.Proxy.Addr)
+			if err != nil {
+				return errors.Wrap(err, "could not parse proxy url: %s", h.network.Proxy.Addr)
+			}
+
+			// set user and pass if not empty
+			if h.network.Proxy.User != "" && h.network.Proxy.Pass != "" {
+				proxyUrl.User = url.UserPassword(h.network.Proxy.User, h.network.Proxy.Pass)
+			}
+
+			proxyDialer, err := proxy.FromURL(proxyUrl, proxy.Direct)
+			if err != nil {
+				return errors.Wrap(err, "could not create proxy dialer from url: %s", h.network.Proxy.Addr)
+			}
+			proxyContextDialer, ok := proxyDialer.(proxy.ContextDialer)
+			if !ok {
+				return errors.Wrap(err, "proxy dialer does not expose DialContext(): %v", proxyDialer)
+			}
+
+			client.DialContext = proxyContextDialer.DialContext
+		}
+	}
+
 	if h.network.Auth.Mechanism == domain.IRCAuthMechanismSASLPlain {
 		if h.network.Auth.Account != "" && h.network.Auth.Password != "" {
 			client.SASLLogin = h.network.Auth.Account
@@ -230,8 +263,21 @@ func (h *Handler) Run() (err error) {
 	}
 
 	if h.network.TLS {
+		// In Go 1.22 old insecure ciphers was removed. A lot of old IRC networks still uses those, so we need to allow those.
+		unsafeCipherSuites := make([]uint16, 0, len(tls.InsecureCipherSuites())+len(tls.CipherSuites()))
+		for _, suite := range tls.InsecureCipherSuites() {
+			unsafeCipherSuites = append(unsafeCipherSuites, suite.ID)
+		}
+		for _, suite := range tls.CipherSuites() {
+			unsafeCipherSuites = append(unsafeCipherSuites, suite.ID)
+		}
+
 		client.UseTLS = true
-		client.TLSConfig = &tls.Config{InsecureSkipVerify: true}
+		client.TLSConfig = &tls.Config{
+			InsecureSkipVerify: true,
+			MinVersion:         tls.VersionTLS10,
+			CipherSuites:       unsafeCipherSuites,
+		}
 	}
 
 	client.AddConnectCallback(h.onConnect)
@@ -706,6 +752,10 @@ func (h *Handler) onMessage(msg ircmsg.Message) {
 	return
 }
 
+func (h *Handler) SendToAnnounceProcessor(channel string, msg string) error {
+	return h.sendToAnnounceProcessor(channel, msg)
+}
+
 // send the msg to announce processor
 func (h *Handler) sendToAnnounceProcessor(channel string, msg string) error {
 	channel = strings.ToLower(channel)
@@ -971,6 +1021,7 @@ func (h *Handler) isValidAnnouncer(nick string) bool {
 
 	_, ok := h.validAnnouncers[strings.ToLower(nick)]
 	return ok
+
 }
 
 // check if channel is one from the list in the definition

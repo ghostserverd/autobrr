@@ -42,7 +42,7 @@ func TestFilter_CheckFilter(t *testing.T) {
 			args: args{
 				filter: Filter{
 					Enabled:            true,
-					MatchCategories:    "Movies",
+					MatchCategories:    "TV*,Movies*",
 					Freeleech:          true,
 					MinSize:            "10 GB",
 					MaxSize:            "40GB",
@@ -1340,6 +1340,44 @@ func TestFilter_CheckFilter(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			name: "match_daily",
+			fields: &Release{
+				TorrentName: "Daily talk show 2022 04 20 Someone 1080p WEB-DL h264-GROUP",
+				Category:    "TV",
+				Uploader:    "Uploader1",
+			},
+			args: args{
+				filter: Filter{
+					Enabled:         true,
+					MatchCategories: "*tv*",
+					Shows:           "Daily talk show",
+					Years:           "2022",
+					Months:          "04",
+					Days:            "20",
+				},
+			},
+			want: true,
+		},
+		{
+			name: "daily_dont_match",
+			fields: &Release{
+				TorrentName: "Daily talk show 2022 04 20 Someone 1080p WEB-DL h264-GROUP",
+				Category:    "TV",
+				Uploader:    "Uploader1",
+			},
+			args: args{
+				filter: Filter{
+					Enabled:         true,
+					MatchCategories: "*tv*",
+					Shows:           "Daily talk show",
+					Years:           "2022",
+					Months:          "05",
+				},
+				rejections: []string{"month not matching. got: 4 want: 05"},
+			},
+			want: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1873,6 +1911,20 @@ func TestFilter_CheckFilter1(t *testing.T) {
 			wantRejections: []string{"match release tags regex not matching. got:  want: foreign - 17"},
 			wantMatch:      false,
 		},
+		{
+			name: "test_43",
+			fields: fields{
+				Shows:       ",Dutchess, preacher",
+				Seasons:     "1",
+				Episodes:    "0",
+				Resolutions: []string{"2160p"},
+				Sources:     []string{"WEB-DL"},
+				Codecs:      []string{"x265"},
+			},
+			args:           args{&Release{TorrentName: "Preacher.S01.DV.2160p.ATVP.WEB-DL.DDPA5.1.x265-NOSiViD"}},
+			wantRejections: nil,
+			wantMatch:      true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1911,6 +1963,8 @@ func TestFilter_CheckFilter1(t *testing.T) {
 				MatchHDR:             tt.fields.MatchHDR,
 				ExceptHDR:            tt.fields.ExceptHDR,
 				Years:                tt.fields.Years,
+				Months:               tt.fields.Months,
+				Days:                 tt.fields.Days,
 				Artists:              tt.fields.Artists,
 				Albums:               tt.fields.Albums,
 				MatchReleaseTypes:    tt.fields.MatchReleaseTypes,
@@ -1936,6 +1990,8 @@ func TestFilter_CheckFilter1(t *testing.T) {
 				Indexers:             tt.fields.Indexers,
 				Downloads:            tt.fields.Downloads,
 			}
+
+			f.Sanitize()
 			tt.args.r.ParseString(tt.args.r.TorrentName)
 			rejections, match := f.CheckFilter(tt.args.r)
 			assert.Equalf(t, tt.wantRejections, rejections, "CheckFilter(%v)", tt.args.r)

@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2021 - 2024, Ludvig Lundgren and the autobrr contributors.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
 export const SettingsKeys = {
   all: ["settings"] as const,
   updates: () => [...SettingsKeys.all, "updates"] as const,
@@ -74,4 +79,11 @@ export const NotificationKeys = {
   lists: () => [...NotificationKeys.all, "list"] as const,
   details: () => [...NotificationKeys.all, "detail"] as const,
   detail: (id: number) => [...NotificationKeys.details(), id] as const
+};
+
+export const ProxyKeys = {
+  all: ["proxy"] as const,
+  lists: () => [...ProxyKeys.all, "list"] as const,
+  details: () => [...ProxyKeys.all, "detail"] as const,
+  detail: (id: number) => [...ProxyKeys.details(), id] as const
 };

@@ -6,12 +6,14 @@ package domain
 import (
 	"context"
 	"fmt"
-	"regexp"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/autobrr/autobrr/pkg/errors"
+	"github.com/autobrr/autobrr/pkg/regexcache"
+	"github.com/autobrr/autobrr/pkg/sanitize"
 	"github.com/autobrr/autobrr/pkg/wildcard"
 
 	"github.com/dustin/go-humanize"
@@ -60,6 +62,22 @@ const (
 	FilterMaxDownloadsEver  FilterMaxDownloadsUnit = "EVER"
 )
 
+type SmartEpisodeParams struct {
+	Title   string
+	Season  int
+	Episode int
+	Year    int
+	Month   int
+	Day     int
+	Repack  bool
+	Proper  bool
+	Group   string
+}
+
+func (p *SmartEpisodeParams) IsDailyEpisode() bool {
+	return p.Year != 0 && p.Month != 0 && p.Day != 0
+}
+
 type FilterQueryParams struct {
 	Sort    map[string]string
 	Filters struct {
@@ -104,6 +122,8 @@ type Filter struct {
 	MatchOther           []string               `json:"match_other,omitempty"`
 	ExceptOther          []string               `json:"except_other,omitempty"`
 	Years                string                 `json:"years,omitempty"`
+	Months               string                 `json:"months,omitempty"`
+	Days                 string                 `json:"days,omitempty"`
 	Artists              string                 `json:"artists,omitempty"`
 	Albums               string                 `json:"albums,omitempty"`
 	MatchReleaseTypes    []string               `json:"match_release_types,omitempty"` // Album,Single,EP
@@ -166,6 +186,22 @@ type FilterExternal struct {
 	FilterId                 int                `json:"-"`
 }
 
+func (f FilterExternal) NeedTorrentDownloaded() bool {
+	if strings.Contains(f.ExecArgs, "TorrentHash") || strings.Contains(f.WebhookData, "TorrentHash") {
+		return true
+	}
+
+	if strings.Contains(f.ExecArgs, "TorrentPathName") || strings.Contains(f.WebhookData, "TorrentPathName") {
+		return true
+	}
+
+	if strings.Contains(f.WebhookData, "TorrentDataRawBytes") {
+		return true
+	}
+
+	return false
+}
+
 type FilterExternalType string
 
 const (
@@ -213,6 +249,8 @@ type FilterUpdate struct {
 	MatchOther           *[]string               `json:"match_other,omitempty"`
 	ExceptOther          *[]string               `json:"except_other,omitempty"`
 	Years                *string                 `json:"years,omitempty"`
+	Months               *string                 `json:"months,omitempty"`
+	Days                 *string                 `json:"days,omitempty"`
 	Artists              *string                 `json:"artists,omitempty"`
 	Albums               *string                 `json:"albums,omitempty"`
 	MatchReleaseTypes    *[]string               `json:"match_release_types,omitempty"` // Album,Single,EP
@@ -253,6 +291,65 @@ func (f *Filter) Validate() error {
 	if _, _, err := f.parsedSizeLimits(); err != nil {
 		return fmt.Errorf("error validating filter size limits: %w", err)
 	}
+
+	for _, external := range f.External {
+		if external.Type == ExternalFilterTypeExec {
+			if external.ExecCmd != "" && external.Enabled {
+				// check if program exists
+				_, err := exec.LookPath(external.ExecCmd)
+				if err != nil {
+					return errors.Wrap(err, "could not find external exec command: %s", external.ExecCmd)
+				}
+			}
+		}
+	}
+
+	for _, action := range f.Actions {
+		if action.Type == ActionTypeExec {
+			if action.ExecCmd != "" && action.Enabled {
+				// check if program exists
+				_, err := exec.LookPath(action.ExecCmd)
+				if err != nil {
+					return errors.Wrap(err, "could not find action exec command: %s", action.ExecCmd)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (f *Filter) Sanitize() error {
+	f.Shows = sanitize.FilterString(f.Shows)
+
+	if !f.UseRegex {
+		f.MatchReleases = sanitize.FilterString(f.MatchReleases)
+		f.ExceptReleases = sanitize.FilterString(f.ExceptReleases)
+	}
+
+	f.MatchReleaseGroups = sanitize.FilterString(f.MatchReleaseGroups)
+	f.ExceptReleaseGroups = sanitize.FilterString(f.ExceptReleaseGroups)
+
+	f.MatchCategories = sanitize.FilterString(f.MatchCategories)
+	f.ExceptCategories = sanitize.FilterString(f.ExceptCategories)
+
+	f.MatchUploaders = sanitize.FilterString(f.MatchUploaders)
+	f.ExceptUploaders = sanitize.FilterString(f.ExceptUploaders)
+
+	f.TagsAny = sanitize.FilterString(f.TagsAny)
+	f.ExceptTags = sanitize.FilterString(f.ExceptTags)
+
+	if !f.UseRegexReleaseTags {
+		f.MatchReleaseTags = sanitize.FilterString(f.MatchReleaseTags)
+		f.ExceptReleaseTags = sanitize.FilterString(f.ExceptReleaseTags)
+	}
+
+	f.Years = sanitize.FilterString(f.Years)
+	f.Months = sanitize.FilterString(f.Months)
+	f.Days = sanitize.FilterString(f.Days)
+
+	f.Artists = sanitize.FilterString(f.Artists)
+	f.Albums = sanitize.FilterString(f.Albums)
 
 	return nil
 }
@@ -399,6 +496,14 @@ func (f *Filter) CheckFilter(r *Release) ([]string, bool) {
 
 	if f.Years != "" && !containsIntStrings(r.Year, f.Years) {
 		f.addRejectionF("year not matching. got: %d want: %v", r.Year, f.Years)
+	}
+
+	if f.Months != "" && !containsIntStrings(r.Month, f.Months) {
+		f.addRejectionF("month not matching. got: %d want: %v", r.Month, f.Months)
+	}
+
+	if f.Days != "" && !containsIntStrings(r.Day, f.Days) {
+		f.addRejectionF("day not matching. got: %d want: %v", r.Day, f.Days)
 	}
 
 	if f.MatchCategories != "" {
@@ -685,7 +790,7 @@ func matchRegex(tag string, filterList string) bool {
 		if filter == "" {
 			continue
 		}
-		re, err := regexp.Compile(`(?i)(?:` + filter + `)`)
+		re, err := regexcache.Compile(`(?i)(?:` + filter + `)`)
 		if err != nil {
 			return false
 		}
@@ -773,28 +878,31 @@ func sliceContainsSlice(tags []string, filters []string) bool {
 }
 
 func containsMatchFuzzy(tags []string, filters []string) bool {
+	advanced := make([]string, 0, len(filters))
 	for _, tag := range tags {
 		if tag == "" {
 			continue
 		}
 		tag = strings.ToLower(tag)
 
+		clear(advanced)
 		for _, filter := range filters {
 			if filter == "" {
 				continue
 			}
+
 			filter = strings.ToLower(filter)
-			filter = strings.Trim(filter, " ")
 			// check if line contains * or ?, if so try wildcard match, otherwise try substring match
 			a := strings.ContainsAny(filter, "?|*")
 			if a {
-				match := wildcard.Match(filter, tag)
-				if match {
-					return true
-				}
+				advanced = append(advanced, filter)
 			} else if strings.Contains(tag, filter) {
 				return true
 			}
+		}
+
+		if wildcard.MatchSlice(advanced, tag) {
+			return true
 		}
 	}
 
@@ -802,29 +910,31 @@ func containsMatchFuzzy(tags []string, filters []string) bool {
 }
 
 func containsMatch(tags []string, filters []string) bool {
+	advanced := make([]string, 0, len(filters))
 	for _, tag := range tags {
 		if tag == "" {
 			continue
 		}
 		tag = strings.ToLower(tag)
-		tag = strings.Trim(tag, " ")
 
+		clear(advanced)
 		for _, filter := range filters {
 			if filter == "" {
 				continue
 			}
+
 			filter = strings.ToLower(filter)
-			filter = strings.Trim(filter, " ")
 			// check if line contains * or ?, if so try wildcard match, otherwise try substring match
 			a := strings.ContainsAny(filter, "?|*")
 			if a {
-				match := wildcard.Match(filter, tag)
-				if match {
-					return true
-				}
+				advanced = append(advanced, filter)
 			} else if tag == filter {
 				return true
 			}
+		}
+
+		if wildcard.MatchSlice(advanced, tag) {
+			return true
 		}
 	}
 
@@ -837,20 +947,20 @@ func containsAllMatch(tags []string, filters []string) bool {
 			continue
 		}
 		filter = strings.ToLower(filter)
-		filter = strings.Trim(filter, " ")
 		found := false
+
+		wildFilter := strings.ContainsAny(filter, "?|*")
 
 		for _, tag := range tags {
 			if tag == "" {
 				continue
 			}
 			tag = strings.ToLower(tag)
-			tag = strings.Trim(tag, " ")
 
 			if tag == filter {
 				found = true
 				break
-			} else if strings.ContainsAny(filter, "?|*") {
+			} else if wildFilter {
 				if wildcard.Match(filter, tag) {
 					found = true
 					break
@@ -877,7 +987,6 @@ func containsMatchBasic(tags []string, filters []string) bool {
 				continue
 			}
 			filter = strings.ToLower(filter)
-			filter = strings.Trim(filter, " ")
 
 			if tag == filter {
 				return true
@@ -889,28 +998,31 @@ func containsMatchBasic(tags []string, filters []string) bool {
 }
 
 func containsAnySlice(tags []string, filters []string) bool {
+	advanced := make([]string, 0, len(filters))
 	for _, tag := range tags {
 		if tag == "" {
 			continue
 		}
 		tag = strings.ToLower(tag)
 
+		clear(advanced)
 		for _, filter := range filters {
 			if filter == "" {
 				continue
 			}
+
 			filter = strings.ToLower(filter)
-			filter = strings.Trim(filter, " ")
 			// check if line contains * or ?, if so try wildcard match, otherwise try substring match
-			wild := strings.ContainsAny(filter, "?|*")
-			if wild {
-				match := wildcard.Match(filter, tag)
-				if match {
-					return true
-				}
+			a := strings.ContainsAny(filter, "?|*")
+			if a {
+				advanced = append(advanced, filter)
 			} else if tag == filter {
 				return true
 			}
+		}
+
+		if wildcard.MatchSlice(advanced, tag) {
+			return true
 		}
 	}
 
@@ -922,7 +1034,6 @@ func checkFreeleechPercent(announcePercent int, filterPercent string) bool {
 
 	for _, s := range filters {
 		s = strings.Replace(s, "%", "", -1)
-		s = strings.Trim(s, " ")
 
 		if strings.Contains(s, "-") {
 			minMax := strings.Split(s, "-")
@@ -969,7 +1080,6 @@ func matchHDR(releaseValues []string, filterValues []string) bool {
 			continue
 		}
 		filter = strings.ToLower(filter)
-		filter = strings.Trim(filter, " ")
 
 		parts := strings.Split(filter, " ")
 		if len(parts) == 2 {

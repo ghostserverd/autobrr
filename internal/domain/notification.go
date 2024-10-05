@@ -20,6 +20,7 @@ type NotificationRepo interface {
 type NotificationSender interface {
 	Send(event NotificationEvent, payload NotificationPayload) error
 	CanSend(event NotificationEvent) bool
+	Name() string
 }
 
 type Notification struct {
@@ -63,6 +64,7 @@ type NotificationPayload struct {
 	Protocol       ReleaseProtocol       // torrent, usenet
 	Implementation ReleaseImplementation // irc, rss, api
 	Timestamp      time.Time
+	Sender         string
 }
 
 type NotificationType string

@@ -14,17 +14,35 @@ CREATE TABLE users
     UNIQUE (username)
 );
 
-CREATE TABLE indexer
+CREATE TABLE proxy
 (
     id             INTEGER PRIMARY KEY,
-    identifier     TEXT,
-	implementation TEXT,
-	base_url       TEXT,
     enabled        BOOLEAN,
     name           TEXT NOT NULL,
-    settings       TEXT,
+	type           TEXT NOT NULL,
+    addr           TEXT NOT NULL,
+	auth_user      TEXT,
+	auth_pass      TEXT,
+    timeout        INTEGER,
     created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE indexer
+(
+    id                  INTEGER PRIMARY KEY,
+    identifier          TEXT,
+    identifier_external TEXT,
+	implementation      TEXT,
+	base_url            TEXT,
+    enabled             BOOLEAN,
+    name                TEXT NOT NULL,
+    settings            TEXT,
+    use_proxy           BOOLEAN DEFAULT FALSE,
+    proxy_id            INTEGER,
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (proxy_id) REFERENCES proxy(id) ON DELETE SET NULL,
     UNIQUE (identifier)
 );
 
@@ -50,8 +68,11 @@ CREATE TABLE irc_network
     bot_mode            BOOLEAN DEFAULT FALSE,
     connected           BOOLEAN,
     connected_since     TIMESTAMP,
+    use_proxy           BOOLEAN DEFAULT FALSE,
+    proxy_id            INTEGER,
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (proxy_id) REFERENCES proxy(id) ON DELETE SET NULL,
     UNIQUE (server, port, nick)
 );
 
@@ -105,6 +126,8 @@ CREATE TABLE filter
     match_other                    TEXT []   DEFAULT '{}',
     except_other                   TEXT []   DEFAULT '{}',
     years                          TEXT,
+    months                         TEXT,
+    days                           TEXT,
     artists                        TEXT,
     albums                         TEXT,
     release_types_match            TEXT []   DEFAULT '{}',
@@ -136,6 +159,12 @@ CREATE TABLE filter
     max_leechers                   INTEGER DEFAULT 0
 );
 
+CREATE INDEX filter_enabled_index
+    ON filter (enabled);
+
+CREATE INDEX filter_priority_index
+    ON filter (priority);
+
 CREATE TABLE filter_external
 (
     id                                  INTEGER PRIMARY KEY,
@@ -157,6 +186,9 @@ CREATE TABLE filter_external
     filter_id                           INTEGER NOT NULL,
     FOREIGN KEY (filter_id)             REFERENCES filter(id) ON DELETE CASCADE
 );
+
+CREATE INDEX filter_external_filter_id_index
+    ON filter_external(filter_id);
 
 CREATE TABLE filter_indexer
 (
@@ -197,6 +229,7 @@ CREATE TABLE action
     save_path               TEXT,
     paused                  BOOLEAN,
     ignore_rules            BOOLEAN,
+    first_last_piece_prio   BOOLEAN DEFAULT false,
     skip_hash_check         BOOLEAN DEFAULT false,
     content_layout          TEXT,
     limit_upload_speed      INT,
@@ -242,6 +275,8 @@ CREATE TABLE "release"
     season            INTEGER,
     episode           INTEGER,
     year              INTEGER,
+    month             INTEGER,
+    day               INTEGER,
     resolution        TEXT,
     source            TEXT,
     codec             TEXT,
@@ -1503,5 +1538,79 @@ ALTER TABLE filter
 	`UPDATE irc_network
     SET server = 'irc.nebulance.io'
     WHERE server = 'irc.nebulance.cc';
+`,
+	`UPDATE  irc_network
+    SET server = 'irc.animefriends.moe',
+        name = CASE  
+			WHEN name = 'AnimeBytes-IRC' THEN 'AnimeBytes'
+        	ELSE name
+        END
+	WHERE server = 'irc.animebytes.tv';
+`,
+	`ALTER TABLE action
+    ADD COLUMN first_last_piece_prio BOOLEAN DEFAULT false;
+`,
+	`ALTER TABLE indexer
+    ADD COLUMN identifier_external TEXT;
+
+	UPDATE indexer
+    SET identifier_external = name;
+`,
+	`ALTER TABLE "release"
+ADD COLUMN month INTEGER;
+
+ALTER TABLE "release"
+ADD COLUMN day INTEGER;
+
+ALTER TABLE filter
+ADD COLUMN months TEXT;
+
+ALTER TABLE filter
+ADD COLUMN days TEXT;
+`,
+	`CREATE TABLE proxy
+(
+    id             INTEGER PRIMARY KEY,
+    enabled        BOOLEAN,
+    name           TEXT NOT NULL,
+	type           TEXT NOT NULL,
+    addr           TEXT NOT NULL,
+	auth_user      TEXT,
+	auth_pass      TEXT,
+    timeout        INTEGER,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE indexer
+    ADD proxy_id INTEGER
+        CONSTRAINT indexer_proxy_id_fk
+            REFERENCES proxy(id)
+            ON DELETE SET NULL;
+
+ALTER TABLE indexer
+    ADD use_proxy BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE irc_network
+    ADD use_proxy BOOLEAN DEFAULT FALSE;
+
+ALTER TABLE irc_network
+    ADD proxy_id INTEGER
+        CONSTRAINT irc_network_proxy_id_fk
+            REFERENCES proxy(id)
+            ON DELETE SET NULL;
+`,
+	`UPDATE indexer
+	SET base_url = 'https://fuzer.xyz/'
+	WHERE base_url = 'https://fuzer.me/';
+`,
+	`CREATE INDEX filter_external_filter_id_index
+    ON filter_external(filter_id);
+
+CREATE INDEX filter_enabled_index
+    ON filter (enabled);
+
+CREATE INDEX filter_priority_index
+    ON filter (priority);
 `,
 }
