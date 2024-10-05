@@ -1,73 +1,36 @@
 /*
- * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * Copyright (c) 2021 - 2024, Ludvig Lundgren and the autobrr contributors.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-import { Dialog, Transition } from "@headlessui/react";
+import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from "@headlessui/react";
 import { Fragment } from "react";
 import type { FieldProps } from "formik";
 import { Field, Form, Formik, FormikErrors, FormikValues } from "formik";
 import { XMarkIcon } from "@heroicons/react/24/solid";
-import Select, { components, ControlProps, InputProps, MenuProps, OptionProps } from "react-select";
+import Select from "react-select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
 
-import { NumberFieldWide, PasswordFieldWide, SwitchGroupWide, TextFieldWide } from "@components/inputs";
-import DEBUG from "@components/debug";
-import { EventOptions, NotificationTypeOptions, SelectOption } from "@domain/constants";
 import { APIClient } from "@api/APIClient";
-import Toast from "@components/notifications/Toast";
+import { NotificationKeys } from "@api/query_keys";
+import { EventOptions, NotificationTypeOptions, SelectOption } from "@domain/constants";
+import { DEBUG } from "@components/debug";
 import { SlideOver } from "@components/panels";
-import { componentMapType } from "./DownloadClientForms";
-import { notificationKeys } from "@screens/settings/Notifications";
 import { ExternalLink } from "@components/ExternalLink";
+import Toast from "@components/notifications/Toast";
+import * as common from "@components/inputs/common";
+import { NumberFieldWide, PasswordFieldWide, SwitchGroupWide, TextFieldWide } from "@components/inputs";
 
-const Input = (props: InputProps) => {
-  return (
-    <components.Input
-      {...props}
-      inputClassName="outline-none border-none shadow-none focus:ring-transparent"
-      className="text-gray-400 dark:text-gray-100"
-      children={props.children}
-    />
-  );
-};
-
-const Control = (props: ControlProps) => {
-  return (
-    <components.Control
-      {...props}
-      className="p-1 block w-full dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:text-gray-100 sm:text-sm"
-      children={props.children}
-    />
-  );
-};
-
-const Menu = (props: MenuProps) => {
-  return (
-    <components.Menu
-      {...props}
-      className="dark:bg-gray-800 border border-gray-300 dark:border-gray-700 dark:text-gray-400 rounded-md shadow-sm"
-      children={props.children}
-    />
-  );
-};
-
-const Option = (props: OptionProps) => {
-  return (
-    <components.Option
-      {...props}
-      className="dark:text-gray-400 dark:bg-gray-800 dark:hover:bg-gray-900 dark:focus:bg-gray-900"
-      children={props.children}
-    />
-  );
-};
+import { componentMapType } from "./DownloadClientForms";
 
 function FormFieldsDiscord() {
   return (
     <div className="border-t border-gray-200 dark:border-gray-700 py-4">
       <div className="px-4 space-y-1">
-        <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">Settings</Dialog.Title>
+        <DialogTitle className="text-lg font-medium text-gray-900 dark:text-white">
+          Settings
+        </DialogTitle>
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {"Create a "}
           <ExternalLink
@@ -94,7 +57,9 @@ function FormFieldsNotifiarr() {
   return (
     <div className="border-t border-gray-200 dark:border-gray-700 py-4">
       <div className="px-4 space-y-1">
-        <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">Settings</Dialog.Title>
+        <DialogTitle className="text-lg font-medium text-gray-900 dark:text-white">
+          Settings
+        </DialogTitle>
         <p className="text-sm text-gray-500 dark:text-gray-400">
           Enable the autobrr integration and optionally create a new API Key.
         </p>
@@ -109,11 +74,45 @@ function FormFieldsNotifiarr() {
   );
 }
 
+function FormFieldsLunaSea() {
+  return (
+    <div className="border-t border-gray-200 dark:border-gray-700 py-4">
+      <div className="px-4 space-y-1">
+        <DialogTitle className="text-lg font-medium text-gray-900 dark:text-white">
+          Settings
+        </DialogTitle>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+        LunaSea offers notifications across all devices linked to your account (User-Based) or to a single device without an account, using a unique webhook per device (Device-Based).
+        </p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          {"Read the "}
+          <ExternalLink
+            href="https://docs.lunasea.app/lunasea/notifications"
+            className="font-medium text-blue-500 underline underline-offset-1 hover:text-blue-400"
+          >
+            LunaSea docs
+          </ExternalLink>
+          {"."}
+        </p>
+      </div>
+
+      <PasswordFieldWide
+        name="webhook"
+        label="Webhook URL"
+        help="LunaSea Webhook URL"
+        placeholder="https://notify.lunasea.app/v1/custom/user/TOKEN"
+      />
+    </div>
+  );
+}
+
 function FormFieldsTelegram() {
   return (
     <div className="border-t border-gray-200 dark:border-gray-700 py-4">
       <div className="px-4 space-y-1">
-        <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">Settings</Dialog.Title>
+        <DialogTitle className="text-lg font-medium text-gray-900 dark:text-white">
+          Settings
+        </DialogTitle>
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {"Read how to "}
           <ExternalLink
@@ -141,6 +140,18 @@ function FormFieldsTelegram() {
         label="Message Thread ID"
         help="Message Thread (topic) of a Supergroup"
       />
+      <TextFieldWide
+        name="host"
+        label="Telegram Api Proxy"
+        help="Reverse proxy domain for api.telegram.org, only needs to be specified if the network you are using has blocked the Telegram API."
+        placeholder="http(s)://ip:port"
+      />
+      <TextFieldWide
+        name="username"
+        label="Sender"
+        help="Custom sender name to show at the top of a notification"
+        placeholder="autobrr"
+      />
     </div>
   );
 }
@@ -149,7 +160,9 @@ function FormFieldsPushover() {
   return (
     <div className="border-t border-gray-200 dark:border-gray-700 py-4">
       <div className="px-4 space-y-1">
-        <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">Settings</Dialog.Title>
+        <DialogTitle className="text-lg font-medium text-gray-900 dark:text-white">
+          Settings
+        </DialogTitle>
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {"Register a new "}
           <ExternalLink
@@ -186,7 +199,9 @@ function FormFieldsGotify() {
   return (
     <div className="border-t border-gray-200 dark:border-gray-700 py-4">
       <div className="px-4 space-y-1">
-        <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">Settings</Dialog.Title>
+        <DialogTitle className="text-lg font-medium text-gray-900 dark:text-white">
+          Settings
+        </DialogTitle>
       </div>
 
       <TextFieldWide
@@ -206,12 +221,89 @@ function FormFieldsGotify() {
   );
 }
 
+function FormFieldsNtfy() {
+  return (
+    <div className="border-t border-gray-200 dark:border-gray-700 py-4">
+      <div className="px-4 space-y-1">
+        <DialogTitle className="text-lg font-medium text-gray-900 dark:text-white">
+          Settings
+        </DialogTitle>
+      </div>
+
+      <TextFieldWide
+        name="host"
+        label="NTFY URL"
+        help="NTFY URL"
+        placeholder="https://ntfy.sh/mytopic"
+        required={true}
+      />
+
+      <TextFieldWide
+        name="username"
+        label="Username"
+        help="Username"
+      />
+
+      <PasswordFieldWide
+        name="password"
+        label="Password"
+        help="Password"
+      />
+
+      <PasswordFieldWide
+        name="token"
+        label="Access token"
+        help="Access token. Use this or Usernmae+password"
+      />
+
+      <NumberFieldWide
+        name="priority"
+        label="Priority"
+        help="Max 5, 4, 3 (default), 2, 1 Min"
+      />
+    </div>
+  );
+}
+
+function FormFieldsShoutrrr() {
+  return (
+    <div className="border-t border-gray-200 dark:border-gray-700 py-4">
+      <div className="px-4 space-y-1">
+        <DialogTitle className="text-lg font-medium text-gray-900 dark:text-white">
+          Settings
+        </DialogTitle>
+      </div>
+
+      <TextFieldWide
+        name="host"
+        label="URL"
+        help="URL"
+        tooltip={
+          <div><p>See full documentation </p>
+            <ExternalLink
+              href="https://containrrr.dev/shoutrrr/services/overview/"
+              className="font-medium text-blue-500 underline underline-offset-1 hover:text-blue-400"
+            >
+              Services
+            </ExternalLink>
+          </div>
+        }
+        placeholder="smtp://username:password@host:port/?from=fromAddress&to=recipient1"
+        required={true}
+      />
+    </div>
+  );
+}
+
 const componentMap: componentMapType = {
   DISCORD: <FormFieldsDiscord />,
   NOTIFIARR: <FormFieldsNotifiarr />,
   TELEGRAM: <FormFieldsTelegram />,
   PUSHOVER: <FormFieldsPushover />,
-  GOTIFY: <FormFieldsGotify />
+  GOTIFY: <FormFieldsGotify />,
+  NTFY: <FormFieldsNtfy />,
+  SHOUTRRR: <FormFieldsShoutrrr />,
+  LUNASEA: <FormFieldsLunaSea />
 };
 
 interface NotificationAddFormValues {
@@ -230,7 +322,7 @@ export function NotificationAddForm({ isOpen, toggle }: AddProps) {
   const createMutation = useMutation({
     mutationFn: (notification: ServiceNotification) => APIClient.notifications.create(notification),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: notificationKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: NotificationKeys.lists() });
 
       toast.custom((t) => <Toast type="success" body="Notification added!" t={t} />);
       toggle();
@@ -260,7 +352,7 @@ export function NotificationAddForm({ isOpen, toggle }: AddProps) {
   };
 
   return (
-    <Transition.Root show={isOpen} as={Fragment}>
+    <Transition show={isOpen} as={Fragment}>
       <Dialog
         as="div"
         static
@@ -269,10 +361,8 @@ export function NotificationAddForm({ isOpen, toggle }: AddProps) {
         onClose={toggle}
       >
         <div className="absolute inset-0 overflow-hidden">
-          <Dialog.Overlay className="absolute inset-0" />
-
-          <div className="fixed inset-y-0 right-0 pl-10 max-w-full flex sm:pl-16">
-            <Transition.Child
+          <DialogPanel className="absolute inset-y-0 right-0 max-w-full flex">
+            <TransitionChild
               as={Fragment}
               enter="transform transition ease-in-out duration-500 sm:duration-700"
               enterFrom="translate-x-full"
@@ -289,20 +379,21 @@ export function NotificationAddForm({ isOpen, toggle }: AddProps) {
                     type: "",
                     name: "",
                     webhook: "",
-                    events: []
+                    events: [],
+                    username: ""
                   }}
                   onSubmit={onSubmit}
                   validate={validate}
                 >
                   {({ values }) => (
-                    <Form className="h-full flex flex-col bg-white dark:bg-gray-800 shadow-xl overflow-y-scroll">
+                    <Form className="h-full flex flex-col bg-white dark:bg-gray-800 shadow-xl overflow-y-auto">
                       <div className="flex-1">
                         <div className="px-4 py-6 bg-gray-50 dark:bg-gray-900 sm:px-6">
                           <div className="flex items-start justify-between space-x-3">
                             <div className="space-y-1">
-                              <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">
+                              <DialogTitle className="text-lg font-medium text-gray-900 dark:text-white">
                                 Add Notifications
-                              </Dialog.Title>
+                              </DialogTitle>
                               <p className="text-sm text-gray-500 dark:text-gray-200">
                                 Trigger notifications on different events.
                               </p>
@@ -347,10 +438,12 @@ export function NotificationAddForm({ isOpen, toggle }: AddProps) {
                                     isClearable={true}
                                     isSearchable={true}
                                     components={{
-                                      Input,
-                                      Control,
-                                      Menu,
-                                      Option
+                                      Input: common.SelectInput,
+                                      Control: common.SelectControl,
+                                      Menu: common.SelectMenu,
+                                      Option: common.SelectOption,
+                                      IndicatorSeparator: common.IndicatorSeparator,
+                                      DropdownIndicator: common.DropdownIndicator
                                     }}
                                     placeholder="Choose a type"
                                     styles={{
@@ -389,9 +482,9 @@ export function NotificationAddForm({ isOpen, toggle }: AddProps) {
 
                           <div className="border-t mt-2 border-gray-200 dark:border-gray-700 py-4">
                             <div className="px-4 space-y-1">
-                              <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">
+                              <DialogTitle className="text-lg font-medium text-gray-900 dark:text-white">
                                 Events
-                              </Dialog.Title>
+                              </DialogTitle>
                               <p className="text-sm text-gray-500 dark:text-gray-400">
                                 Select what events to trigger on
                               </p>
@@ -435,11 +528,11 @@ export function NotificationAddForm({ isOpen, toggle }: AddProps) {
                   )}
                 </Formik>
               </div>
-            </Transition.Child>
-          </div>
+            </TransitionChild>
+          </DialogPanel>
         </div>
       </Dialog>
-    </Transition.Root>
+    </Transition>
   );
 }
 
@@ -491,6 +584,7 @@ interface InitialValues {
   topic?: string;
   host?: string;
   events: NotificationEvent[];
+  username?: string
 }
 
 export function NotificationUpdateForm({ isOpen, toggle, notification }: UpdateProps) {
@@ -499,7 +593,7 @@ export function NotificationUpdateForm({ isOpen, toggle, notification }: UpdateP
   const mutation = useMutation({
     mutationFn: (notification: ServiceNotification) => APIClient.notifications.update(notification),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: notificationKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: NotificationKeys.lists() });
 
       toast.custom((t) => <Toast type="success" body={`${notification.name} was updated successfully`} t={t}/>);
       toggle();
@@ -511,7 +605,7 @@ export function NotificationUpdateForm({ isOpen, toggle, notification }: UpdateP
   const deleteMutation = useMutation({
     mutationFn: (notificationID: number) => APIClient.notifications.delete(notificationID),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: notificationKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: NotificationKeys.lists() });
 
       toast.custom((t) => <Toast type="success" body={`${notification.name} was deleted.`} t={t}/>);
     }
@@ -540,7 +634,8 @@ export function NotificationUpdateForm({ isOpen, toggle, notification }: UpdateP
     channel: notification.channel,
     topic: notification.topic,
     host: notification.host,
-    events: notification.events || []
+    events: notification.events || [],
+    username: notification.username
   };
 
   return (
@@ -574,8 +669,14 @@ export function NotificationUpdateForm({ isOpen, toggle, notification }: UpdateP
                     <Select {...field}
                       isClearable={true}
                       isSearchable={true}
-                      components={{ Input, Control, Menu, Option }}
-
+                      components={{
+                        Input: common.SelectInput,
+                        Control: common.SelectControl,
+                        Menu: common.SelectMenu,
+                        Option: common.SelectOption,
+                        IndicatorSeparator: common.IndicatorSeparator,
+                        DropdownIndicator: common.DropdownIndicator
+                      }}
                       placeholder="Choose a type"
                       styles={{
                         singleValue: (base) => ({
@@ -606,8 +707,9 @@ export function NotificationUpdateForm({ isOpen, toggle, notification }: UpdateP
             <SwitchGroupWide name="enabled" label="Enabled"/>
             <div className="border-t border-gray-200 dark:border-gray-700 py-4">
               <div className="px-4 space-y-1">
-                <Dialog.Title
-                  className="text-lg font-medium text-gray-900 dark:text-white">Events</Dialog.Title>
+                <DialogTitle className="text-lg font-medium text-gray-900 dark:text-white">
+                  Events
+                </DialogTitle>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   Select what events to trigger on
                 </p>

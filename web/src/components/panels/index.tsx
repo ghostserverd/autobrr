@@ -1,15 +1,15 @@
 /*
- * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * Copyright (c) 2021 - 2024, Ludvig Lundgren and the autobrr contributors.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 import { Fragment, useRef, ReactNode, ReactElement } from "react";
 import { XMarkIcon } from "@heroicons/react/24/solid";
-import { Dialog, Transition } from "@headlessui/react";
+import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from "@headlessui/react";
 import { Form, Formik } from "formik";
 import type { FormikValues, FormikProps } from "formik";
 
-import DEBUG from "@components/debug";
+import { DEBUG } from "@components/debug";
 import { useToggle } from "@hooks/hooks";
 import { DeleteModal } from "@components/modals";
 import { classNames } from "@utils";
@@ -53,7 +53,7 @@ function SlideOver<DataType extends FormikValues>({
   const [deleteModalIsOpen, toggleDeleteModal] = useToggle(false);
 
   return (
-    <Transition.Root show={isOpen} as={Fragment}>
+    <Transition show={isOpen} as={Fragment}>
       <Dialog as="div" static className="fixed inset-0 overflow-hidden" open={isOpen} onClose={toggle}>
         {deleteAction && (
           <DeleteModal
@@ -68,16 +68,14 @@ function SlideOver<DataType extends FormikValues>({
         )}
 
         <div className="absolute inset-0 overflow-hidden">
-          <Dialog.Overlay className="absolute inset-0" />
-
-          <div
+          <DialogPanel
             className="fixed inset-y-0 right-0 max-w-full flex"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
             }}
           >
-            <Transition.Child
+            <TransitionChild
               as={Fragment}
               enter="transform transition ease-in-out duration-500 sm:duration-700"
               enterFrom="translate-x-full"
@@ -96,7 +94,7 @@ function SlideOver<DataType extends FormikValues>({
                 >
                   {({ handleSubmit, values }) => (
                     <Form
-                      className="h-full flex flex-col bg-white dark:bg-gray-800 shadow-xl overflow-y-scroll"
+                      className="h-full flex flex-col bg-white dark:bg-gray-800 shadow-xl overflow-y-auto"
                       onSubmit={(e) => {
                         e.preventDefault();
                         handleSubmit(e);
@@ -107,7 +105,7 @@ function SlideOver<DataType extends FormikValues>({
                         <div className="px-4 py-6 bg-gray-50 dark:bg-gray-900 sm:px-6">
                           <div className="flex items-start justify-between space-x-3">
                             <div className="space-y-1">
-                              <Dialog.Title className="text-lg font-medium text-gray-900 dark:text-white">{type === "CREATE" ? "Create" : "Update"} {title}</Dialog.Title>
+                              <DialogTitle className="text-lg font-medium text-gray-900 dark:text-white">{type === "CREATE" ? "Create" : "Update"} {title}</DialogTitle>
                               <p className="text-sm text-gray-500 dark:text-gray-400">
                                 {type === "CREATE" ? "Create" : "Update"} {title}.
                               </p>
@@ -141,7 +139,7 @@ function SlideOver<DataType extends FormikValues>({
                               Remove
                             </button>
                           )}
-                          <div>
+                          <div className="flex">
                             {!!values && extraButtons !== undefined && (
                               extraButtons(values)
                             )}
@@ -154,7 +152,7 @@ function SlideOver<DataType extends FormikValues>({
                                     ? "text-green-500 border-green-500 bg-green-50"
                                     : isTestError
                                       ? "text-red-500 border-red-500 bg-red-50"
-                                      : "border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-400 bg-white dark:bg-gray-700 hover:bg-gray-50 focus:border-rose-700 active:bg-rose-700",
+                                      : "border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:border-rose-700 active:bg-rose-700",
                                   isTesting ? "cursor-not-allowed" : "",
                                   "mr-2 inline-flex items-center px-4 py-2 border font-medium rounded-md shadow-sm text-sm transition ease-in-out duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-blue-500"
                                 )}
@@ -225,11 +223,11 @@ function SlideOver<DataType extends FormikValues>({
                 </Formik>
               </div>
 
-            </Transition.Child>
-          </div>
+            </TransitionChild>
+          </DialogPanel>
         </div>
       </Dialog>
-    </Transition.Root>
+    </Transition>
   );
 }
 

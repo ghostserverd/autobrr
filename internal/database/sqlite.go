@@ -1,4 +1,4 @@
-// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// Copyright (c) 2021 - 2024, Ludvig Lundgren and the autobrr contributors.
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 package database
@@ -6,6 +6,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"os"
 
 	"github.com/autobrr/autobrr/pkg/errors"
 
@@ -38,7 +39,7 @@ func (db *DB) openSQLite() error {
 	}
 
 	// SQLite has a query planner that uses lifecycle stats to fund optimizations.
-	// This restricts the SQLite query planner optimizer to only run if sufficient 
+	// This restricts the SQLite query planner optimizer to only run if sufficient
 	// information has been gathered over the lifecycle of the connection.
 	// The SQLite documentation is inconsistent in this regard,
 	// suggestions of 400 and 1000 are both "recommended", so lets use the lower bound.
@@ -59,6 +60,14 @@ func (db *DB) openSQLite() error {
 	// Enable foreign key checks. For historical reasons, SQLite does not check
 	// foreign key constraints by default. There's some overhead on inserts to
 	// verify foreign key integrity, but it's definitely worth it.
+
+	// Enable it for testing for consistency with postgres.
+	if os.Getenv("IS_TEST_ENV") == "true" {
+		if _, err = db.handler.Exec(`PRAGMA foreign_keys = ON;`); err != nil {
+			return errors.New("foreign keys pragma")
+		}
+	}
+
 	//if _, err = db.handler.Exec(`PRAGMA foreign_keys = ON;`); err != nil {
 	//	return errors.New("foreign keys pragma: %w", err)
 	//}
@@ -116,7 +125,7 @@ func (db *DB) migrateSQLite() error {
 		}
 	} else {
 		for i := version; i < len(sqliteMigrations); i++ {
-			db.log.Info().Msgf("Upgrading Database schema to version: %v", i)
+			db.log.Info().Msgf("Upgrading Database schema to version: %v", i+1)
 			if _, err := tx.Exec(sqliteMigrations[i]); err != nil {
 				return errors.Wrap(err, "failed to execute migration #%v", i)
 			}
