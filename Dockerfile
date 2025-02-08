@@ -1,6 +1,6 @@
 # build web
 FROM node:20.17.0-alpine3.20 AS web-builder
-RUN corepack enable
+RUN npm install -g corepack@latest && corepack enable
 
 WORKDIR /web
 
